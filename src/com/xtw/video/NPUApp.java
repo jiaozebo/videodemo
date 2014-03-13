@@ -10,17 +10,24 @@ import java.lang.Thread.UncaughtExceptionHandler;
 
 import util.CommonMethod;
 import android.app.Application;
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import c7.PUParam;
 
 import com.crearo.config.StorageOptions;
 import com.crearo.mpu.sdk.Common;
 import com.crearo.mpu.sdk.client.PUInfo;
+import com.crearo.puserver.PUServerThread;
 
 public class NPUApp extends Application {
 
 	static PUInfo sInfo;
-	static MyMPUEntity sEntity;
+	private static MyMPUEntity sEntity;
 	static String sROOT;
+
+	private static PUServerThread mServer;
+	private static ConfigServer sConfigServer;
 
 	/*
 	 * (non-Javadoc)
@@ -43,13 +50,7 @@ public class NPUApp extends Application {
 		sInfo.puid = p.PUID;
 		sInfo.hardWareVer = p.HardwareVer;
 		sInfo.softWareVer = p.SoftwareVer;
-		try {
-			new ConfigServer(this, "").start();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		Thread.setDefaultUncaughtExceptionHandler(new UncaughtExceptionHandler() {
+		UncaughtExceptionHandler handler = new UncaughtExceptionHandler() {
 
 			@Override
 			public void uncaughtException(Thread arg0, Throwable e) {
@@ -80,7 +81,14 @@ public class NPUApp extends Application {
 				android.os.Process.killProcess(android.os.Process.myPid());
 				System.exit(10);
 			}
-		});
+		};
+		// Thread.setDefaultUncaughtExceptionHandler(handler);
+
+		ConnectivityManager mng = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+		NetworkInfo info = mng.getActiveNetworkInfo();
+		if (info != null && info.isConnected() && info.getType() == ConnectivityManager.TYPE_WIFI) {
+			startServer(this);
+		}
 	}
 
 	public static void initRootPath() {
@@ -94,6 +102,52 @@ public class NPUApp extends Application {
 
 		File f = new File(sROOT);
 		f.mkdirs();
+	}
+
+	public static void setEntity(MyMPUEntity entity) {
+		if (mServer != null) {
+			mServer.setCallbackHandler(entity);
+		}
+		sEntity = entity;
+	}
+
+	public static MyMPUEntity getEntity() {
+		return sEntity;
+	}
+
+	public static PUServerThread getServer() {
+		return mServer;
+	}
+
+	public static void startServer(Context context) {
+		if (mServer == null) {
+			PUServerThread p = new PUServerThread(context, NPUApp.sInfo, 8888);
+			p.start();
+			p.setCallbackHandler(sEntity);
+			mServer = p;
+		}
+		if (sConfigServer == null) {
+			try {
+				sConfigServer = new ConfigServer(context, "");
+				sConfigServer.start();
+			} catch (IOException e) {
+				sConfigServer = null;
+				e.printStackTrace();
+			}
+		}
+
+	}
+
+	public static void stopPUServer(Context context) {
+		if (mServer != null) {
+			mServer.setCallbackHandler(null);
+			mServer.quit();
+			mServer = null;
+		}
+		if (sConfigServer != null) {
+			sConfigServer.stop();
+			sConfigServer = null;
+		}
 	}
 
 }

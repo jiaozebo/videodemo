@@ -7,6 +7,7 @@ import java.io.FileFilter;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -23,11 +24,13 @@ import org.w3c.dom.Node;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
+import android.net.wifi.ScanResult;
 import android.preference.PreferenceManager;
 import android.text.TextUtils;
 
 import com.crearo.config.NanoHTTPD;
 import com.crearo.config.NanoHTTPD.Response.Status;
+import com.crearo.config.Wifi;
 import com.crearo.mpu.sdk.client.VideoParam;
 import com.crearo.puserver.PUCommandChannel;
 
@@ -105,6 +108,22 @@ public class ConfigServer extends NanoHTTPD {
 					xml = "error: " + e.getMessage();
 				}
 				return new Response(Status.OK, "text/xml", xml);
+			} else if (parms.containsKey("wifi")) {
+				final String ssid = parms.get("ssid");
+				final String pwd = parms.get("password");
+				new Thread() {
+					@Override
+					public void run() {
+						Wifi.connectWifi(mContext, ssid, pwd);
+						super.run();
+					}
+
+				}.start();
+				PreferenceManager.getDefaultSharedPreferences(mContext).edit()
+						.putString(WifiStateReceiver.KEY_DEFAULT_SSID, ssid)
+						.putString(WifiStateReceiver.KEY_DEFAULT_SSID_PWD, pwd).commit();
+				return new Response(
+						"<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='1;url=' />\n<body>正在处理...请切换至新的WIFI再连接。</body></html>");
 			} else if (parms.containsKey("camera")) {
 				int id = 0;
 				if ("back".equals(parms.get("camera"))) {
@@ -148,17 +167,36 @@ public class ConfigServer extends NanoHTTPD {
 			}
 			sb.append("<input type='submit' value='配置' />\n");
 			sb.append("</form>\n");
-//			sb.append("<form method='get' action=''>\n");
-//			if (NPUApp.sEntity != null) {
-//				sb.append("<input type='checkbox' name='quality' checked='1'/><br />\n");
-//
-//				sb.append("\t\t\t\t摄像头状态：<input name='camera_state' value='on' type='radio' checked='1'>开启</input>\n");
-//				sb.append("<input name='camera_state' value='off' type='radio' >关闭<br />\n");
-//			} else {
-//				sb.append("\t\t\t\t音频质量：<input type='checkbox' name='quality'/><br />\n");
-//			}
-//			sb.append("<input type='submit' value='配置' />\n");
-//			sb.append("</form>\n");
+
+			String cSSID = Wifi.getCurrentSSID(mContext);
+			Iterable<ScanResult> configuredNetworks = Wifi.getConfiguredNetworks(mContext);
+			if (configuredNetworks != null) {
+				sb.append("\t\t\t<form method='post' action=''>\n");
+				sb.append("\t\t<h3 style='margin:0;padding:0'>周边WIFI接入点名称:</h3>\n");
+				Iterator<ScanResult> it = configuredNetworks.iterator();
+				while (it.hasNext()) {
+					ScanResult cfg = (ScanResult) it.next();
+					String sSID = cfg.SSID;
+					if (sSID.startsWith("\"")) {
+						sSID = sSID.substring(1);
+					}
+					if (sSID.endsWith("\"")) {
+						sSID = sSID.substring(0, sSID.length() - 1);
+					}
+					sb.append(String.format("%s(%d)", sSID, 100 + cfg.level));
+					sb.append("<input type='radio' name='ssid' ");
+					String valueString = String.format("value='%s'", sSID);
+					sb.append(valueString);
+					if (cSSID.equals(sSID) || cSSID.equals(String.format("\"%s\"", sSID))) {
+						sb.append("checked='checked'");
+					}
+					sb.append("/><br />");
+				}
+				sb.append("\t\t\t\t密码: <input type='password' name='password' value=''/>\n");
+				sb.append("\t\t\t\t<input type='submit' name='wifi' value='连接'>\n");
+				sb.append("\t\t\t</form>\n");
+			}
+
 			sb.append("\t</body>\n");
 			sb.append("</html>\n");
 

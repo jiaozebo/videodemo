@@ -51,9 +51,7 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 	private Thread mLoginThread;
 	private String mAddress;
 	private int mPort;
-	WakeLock mWakeLock = null;
 	private boolean mQuit;
-	private PUServerThread mServer;
 
 	private Toast mQuitTipToast = null;
 	private Runnable mResetQuitFlagRunnable = null;
@@ -66,12 +64,11 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		requestWindowFeature(Window.FEATURE_NO_TITLE);
-		getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
 		super.onCreate(savedInstanceState);
+		getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN|WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); 
 		PreferenceManager.getDefaultSharedPreferences(this)
 				.registerOnSharedPreferenceChangeListener(this);
-		mServer = new PUServerThread(this, NPUApp.sInfo, 8888);
-		mServer.start();
+		
 		mQuitTipToast = Toast.makeText(this, "再按一次退出", Toast.LENGTH_LONG);
 		mResetQuitFlagRunnable = new Runnable() {
 
@@ -83,10 +80,8 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 		};
 
 		mEntity = new MyMPUEntity(MainActivity.this);
+		NPUApp.setEntity(mEntity);
 		if (initParams()) {
-			PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-			mWakeLock = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK
-					| PowerManager.ON_AFTER_RELEASE, "My Lock");
 			startWithParamValid();
 			tryEnableMobileData();
 			startLogin();
@@ -107,17 +102,11 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 	@Override
 	protected void onResume() {
 		super.onResume();
-		if (mWakeLock != null) {
-			mWakeLock.acquire();
-		}
 	}
 
 	@Override
 	protected void onPause() {
 		super.onPause();
-		if (mWakeLock != null) {
-			mWakeLock.release();
-		}
 	}
 
 	/**
@@ -167,7 +156,7 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 								}
 							}
 						});
-						NPUApp.sEntity = entity;
+						NPUApp.setEntity(entity);
 						break;
 					} else {
 						Log.e(tag, "login error! code = " + result);
@@ -193,7 +182,7 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 		if (mEntity != null) {
 			mEntity.logout();
 		}
-		NPUApp.sEntity = null;
+		NPUApp.setEntity(null);
 	}
 
 	@TargetApi(Build.VERSION_CODES.GINGERBREAD)
@@ -246,7 +235,6 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 		int id = PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getInt(
 				VideoParam.KEY_INT_CAMERA_ID, 0);
 		mVideoParam.putParam(VideoParam.KEY_INT_CAMERA_ID, id);
-		mServer.setCallbackHandler(mEntity);
 		final Callback callback = new Callback() {
 
 			private boolean mRecordStart;
@@ -372,15 +360,8 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 	protected void onDestroy() {
 		PreferenceManager.getDefaultSharedPreferences(this)
 				.unregisterOnSharedPreferenceChangeListener(this);
-		if (mServer != null) {
-			mServer.setCallbackHandler(null);
-		}
-		mServer.quit();
-		mServer = null;
 		mResetQuitFlagRunnable = null;
 		mQuitTipToast = null;
-		mWakeLock = null;
-
 		if (mEntity != null) {
 			stopLogin();
 			mEntity.close();
