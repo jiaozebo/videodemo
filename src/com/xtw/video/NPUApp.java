@@ -111,10 +111,6 @@ public class NPUApp extends Application {
 		sEntity = entity;
 	}
 
-	public static MyMPUEntity getEntity() {
-		return sEntity;
-	}
-
 	public static PUServerThread getServer() {
 		return mServer;
 	}

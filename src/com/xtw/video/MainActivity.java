@@ -17,8 +17,6 @@ import android.net.ConnectivityManager;
 import android.os.Build;
 import android.os.Build.VERSION;
 import android.os.Bundle;
-import android.os.PowerManager;
-import android.os.PowerManager.WakeLock;
 import android.preference.PreferenceManager;
 import android.text.TextUtils;
 import android.util.Log;
@@ -80,7 +78,6 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 		};
 
 		mEntity = new MyMPUEntity(MainActivity.this);
-		NPUApp.setEntity(mEntity);
 		if (initParams()) {
 			startWithParamValid();
 			tryEnableMobileData();
@@ -156,7 +153,6 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 								}
 							}
 						});
-						NPUApp.setEntity(entity);
 						break;
 					} else {
 						Log.e(tag, "login error! code = " + result);
@@ -182,7 +178,6 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 		if (mEntity != null) {
 			mEntity.logout();
 		}
-		NPUApp.setEntity(null);
 	}
 
 	@TargetApi(Build.VERSION_CODES.GINGERBREAD)
@@ -250,12 +245,14 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 					mRecordStart = false;
 				}
 				entity.stop();
+				NPUApp.setEntity(null);
 			}
 
 			@Override
 			public void surfaceCreated(final SurfaceHolder holder) {
 				mEntity.start(mSurface, mVideoParam);
 				mRecordStart = mEntity.startOrStopRecord();
+				NPUApp.setEntity(mEntity);
 			}
 
 			@Override
