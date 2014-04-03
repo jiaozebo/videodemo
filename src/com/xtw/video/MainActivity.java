@@ -81,7 +81,9 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 		if (initParams()) {
 			startWithParamValid();
 			tryEnableMobileData();
-			startLogin();
+			if (mPort != 0) {
+				startLogin();
+			}
 		} else {
 			Intent i = new Intent(this, PUSettingActivity.class);
 			startActivityForResult(i, REQUEST_PARAM);
@@ -276,7 +278,7 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 	}
 
 	private boolean isS4() {
-		return Build.MODEL.equals("SCH-I959") || Build.MODEL.equals("SCH-I9500")
+		return Build.MODEL.equals("SCH-I959") || Build.MODEL.equals("GT-I9500")
 				|| Build.MODEL.equals("SCH-I9502") || Build.MODEL.equals("SCH-I9508");
 	}
 
@@ -288,8 +290,8 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
 		String previewSize = preferences.getString(PUSettingActivity.PREVIEW_SIZE_VALUE, null);
 		mAddress = preferences.getString(PUSettingActivity.ADDRESS, null);
-		mPort = preferences.getInt(PUSettingActivity.PORT, 0);
-		if (previewSize == null || mPort == 0 || TextUtils.isEmpty(mAddress)) {
+		mPort = preferences.getInt(PUSettingActivity.PORT, -1);
+		if (previewSize == null || mPort == -1 || TextUtils.isEmpty(mAddress)) {
 			return false;
 		} else {
 			int pos = previewSize.indexOf('x');
