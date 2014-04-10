@@ -42,6 +42,7 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 
 	private static final int REQUEST_PARAM = 0x1000;
 	protected static final String tag = "MainActivity";
+	protected static final String KEY_QUIT = "key_quit";
 	private int mWidth, mHeight;
 	SurfaceView mSurface;
 	MyMPUEntity mEntity;
@@ -63,10 +64,16 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 	protected void onCreate(Bundle savedInstanceState) {
 		requestWindowFeature(Window.FEATURE_NO_TITLE);
 		super.onCreate(savedInstanceState);
-		getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN|WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); 
+		if (getIntent().getBooleanExtra(KEY_QUIT, false)) {
+			finish();
+			return;
+		}
+		getWindow().addFlags(
+				WindowManager.LayoutParams.FLAG_FULLSCREEN
+						| WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 		PreferenceManager.getDefaultSharedPreferences(this)
 				.registerOnSharedPreferenceChangeListener(this);
-		
+
 		mQuitTipToast = Toast.makeText(this, "再按一次退出", Toast.LENGTH_LONG);
 		mResetQuitFlagRunnable = new Runnable() {
 
@@ -106,6 +113,14 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 	@Override
 	protected void onPause() {
 		super.onPause();
+	}
+
+	@Override
+	protected void onNewIntent(Intent intent) {
+		super.onNewIntent(intent);
+		if (intent.getBooleanExtra(KEY_QUIT, false)) {
+			finish();
+		}
 	}
 
 	/**

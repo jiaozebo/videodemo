@@ -11,8 +11,10 @@ import java.lang.Thread.UncaughtExceptionHandler;
 import util.CommonMethod;
 import android.app.Application;
 import android.content.Context;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
+import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
 import c7.PUParam;
 
 import com.crearo.config.StorageOptions;
@@ -28,6 +30,7 @@ public class NPUApp extends Application {
 
 	private static PUServerThread mServer;
 	private static ConfigServer sConfigServer;
+	public static boolean sUseAsAp = false;
 
 	/*
 	 * (non-Javadoc)
@@ -37,7 +40,12 @@ public class NPUApp extends Application {
 	@Override
 	public void onCreate() {
 		super.onCreate();
-
+		try {
+			PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+			sUseAsAp = pi.versionName.contains("ap");
+		} catch (NameNotFoundException e3) {
+			e3.printStackTrace();
+		}
 		initRootPath();
 		PUParam p = new PUParam();
 		Common.initParam(p, this);
@@ -83,12 +91,7 @@ public class NPUApp extends Application {
 			}
 		};
 		// Thread.setDefaultUncaughtExceptionHandler(handler);
-
-		ConnectivityManager mng = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-		NetworkInfo info = mng.getActiveNetworkInfo();
-		if (info != null && info.isConnected() && info.getType() == ConnectivityManager.TYPE_WIFI) {
-			startServer(this);
-		}
+		startService(new Intent(this, WifiAndPuServerService.class));
 	}
 
 	public static void initRootPath() {

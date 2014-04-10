@@ -37,8 +37,11 @@ public class WifiStateReceiver extends BroadcastReceiver {
 					&& wifiState != WifiManager.WIFI_STATE_ENABLED) {
 				//
 				// wifi 关闭了
-				NPUApp.stopPUServer(context);
-				
+
+				WifiManager mng = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+				if (!Wifi.isWifiApEnabled(mng)) {
+					NPUApp.stopPUServer(context);
+				}
 			} else if (prevState != WifiManager.WIFI_STATE_ENABLED
 					&& wifiState == WifiManager.WIFI_STATE_ENABLED) {
 				// wifi 开启了

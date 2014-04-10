@@ -22,9 +22,13 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
 import android.net.wifi.ScanResult;
+import android.os.Environment;
+import android.os.StatFs;
 import android.preference.PreferenceManager;
 import android.text.TextUtils;
 
@@ -539,5 +543,33 @@ public class ConfigServer extends NanoHTTPD {
 		if (is_i_create) {
 			out.close();
 		}
+	}
+
+	public static long storageAvailable() {
+		String state = Environment.getExternalStorageState();
+		if (Environment.MEDIA_MOUNTED.equals(state)) {
+			String sROOT = NPUApp.sROOT;
+			if (TextUtils.isEmpty(sROOT)) {
+				return -1;
+			}
+			File f = new File(sROOT);
+			if (!f.exists()) {
+				return -1;
+			}
+			StatFs sf = new StatFs(sROOT);
+			long blockSize = sf.getBlockSize();
+			long availCount = sf.getAvailableBlocks();
+			return availCount * blockSize;
+		}
+		return -1;
+	}
+
+	public static float getBaterryPecent(Context context) {
+		Intent batteryInfoIntent = context.getApplicationContext().registerReceiver(null,
+				new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+
+		int level = batteryInfoIntent.getIntExtra("level", 50);
+		int scale = batteryInfoIntent.getIntExtra("scale", 100);
+		return level * 1f / scale;
 	}
 }
