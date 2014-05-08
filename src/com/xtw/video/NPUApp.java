@@ -90,8 +90,6 @@ public class NPUApp extends Application {
 				System.exit(10);
 			}
 		};
-		// Thread.setDefaultUncaughtExceptionHandler(handler);
-		startService(new Intent(this, WifiAndPuServerService.class));
 	}
 
 	public static void initRootPath() {
@@ -127,7 +125,7 @@ public class NPUApp extends Application {
 		}
 		if (sConfigServer == null) {
 			try {
-				sConfigServer = new ConfigServer(context, "");
+				sConfigServer = new ConfigServer(context);
 				sConfigServer.start();
 			} catch (IOException e) {
 				sConfigServer = null;

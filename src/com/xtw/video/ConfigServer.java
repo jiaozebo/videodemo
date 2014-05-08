@@ -21,6 +21,7 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
+import android.app.AlarmManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -39,7 +40,6 @@ import com.crearo.mpu.sdk.client.VideoParam;
 import com.crearo.puserver.PUCommandChannel;
 
 public class ConfigServer extends NanoHTTPD {
-	private String mRoot;
 	private Context mContext;
 
 	/**
@@ -47,15 +47,15 @@ public class ConfigServer extends NanoHTTPD {
 	 * 
 	 * @throws IOException
 	 */
-	public ConfigServer(Context c, String fileRoot) throws IOException {
+	public ConfigServer(Context c) throws IOException {
 		super(8080);
 		mContext = c;
-		mRoot = fileRoot;
 	}
 
 	@Override
-	public Response serve(String uri, Method method, Map<String, String> header,
-			Map<String, String> parms, Map<String, String> files) {
+	public Response serve(String uri, Method method,
+			Map<String, String> header, Map<String, String> parms,
+			Map<String, String> files) {
 		if (uri.equals("/")) {
 			if (parms.containsKey("address")) {
 				StringBuilder sb = new StringBuilder();
@@ -73,15 +73,16 @@ public class ConfigServer extends NanoHTTPD {
 					if (nPort == -1) {
 						sb.append("<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='1;url=/' />\n<body>端口不合法</body></html>");
 					} else {
-						Editor edit = PreferenceManager.getDefaultSharedPreferences(mContext)
-								.edit();
+						Editor edit = PreferenceManager
+								.getDefaultSharedPreferences(mContext).edit();
 						edit.putString(PUSettingActivity.ADDRESS, addr)
 								.putInt(PUSettingActivity.PORT, nPort).commit();
 						sb.append("<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='1;url=/' />\n<body>参数修改成功!</body></html>");
 					}
 				}
 				return new Response(sb.toString());
-			} else if (parms.containsKey("login") || parms.containsKey("query_login_status")) {
+			} else if (parms.containsKey("login")
+					|| parms.containsKey("query_login_status")) {
 				StringBuilder sb = new StringBuilder();
 				sb.append("<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<body>");
 				sb.append("<br /><a href='?query_login_status=1'>查询登录状态</a><hr /></body></html>");
@@ -91,14 +92,30 @@ public class ConfigServer extends NanoHTTPD {
 				sb.append("<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='1;url=' />\n<body>已退出登录.</body></html>");
 				return new Response(sb.toString());
 			} else if (parms.containsKey("list_files")) {
-				return serveFile(uri, header, mRoot, true);
+				return serveFile(uri, header, NPUApp.sROOT, true);
+			} else if (parms.containsKey("mdy_date_time")) {
+				String millis = parms.get("time");
+				StringBuilder sb = new StringBuilder();
+				try {
+					long milliseconds = Long.parseLong(millis);
+					AlarmManager am = (AlarmManager) mContext
+							.getSystemService(Context.ALARM_SERVICE);
+					am.setTime(milliseconds);
+					sb.append("<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='1;url=/' />\n<body>修改成功</body></html>");
+				} catch (Exception e) {
+					sb.append(String
+							.format("<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='5;url=/' />\n<body>修改失败(%s)</body></html>",
+									"" + e.getMessage()));
+				} finally {
+				}
+				return new Response(sb.toString());
 			} else if (parms.containsKey("list_allfiles_xml")) {
 				String xml = null;
 				try {
-					DocumentBuilder builder = DocumentBuilderFactory.newInstance()
-							.newDocumentBuilder();
+					DocumentBuilder builder = DocumentBuilderFactory
+							.newInstance().newDocumentBuilder();
 					Document doc = builder.newDocument();
-					File rootFile = new File(mRoot);
+					File rootFile = new File(NPUApp.sROOT);
 					Element root = doc.createElement("File");
 					addFiles2Node(rootFile, root, doc);
 					doc.appendChild(root);
@@ -125,7 +142,8 @@ public class ConfigServer extends NanoHTTPD {
 				}.start();
 				PreferenceManager.getDefaultSharedPreferences(mContext).edit()
 						.putString(WifiStateReceiver.KEY_DEFAULT_SSID, ssid)
-						.putString(WifiStateReceiver.KEY_DEFAULT_SSID_PWD, pwd).commit();
+						.putString(WifiStateReceiver.KEY_DEFAULT_SSID_PWD, pwd)
+						.commit();
 				return new Response(
 						"<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='1;url=' />\n<body>正在处理...请切换至新的WIFI再连接。</body></html>");
 			} else if (parms.containsKey("camera")) {
@@ -137,26 +155,29 @@ public class ConfigServer extends NanoHTTPD {
 				}
 				SharedPreferences preferences = PreferenceManager
 						.getDefaultSharedPreferences(mContext);
-				preferences.edit().putInt(VideoParam.KEY_INT_CAMERA_ID, id).commit();
+				preferences.edit().putInt(VideoParam.KEY_INT_CAMERA_ID, id)
+						.commit();
 				StringBuilder sb = new StringBuilder();
 				sb.append("<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<body>");
 				sb.append(String.format("已切换为%s.", id == 0 ? "后置" : "前置"));
 				sb.append("</body></html>");
 				return new Response(sb.toString());
 			}
-			SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(mContext);
+			SharedPreferences preferences = PreferenceManager
+					.getDefaultSharedPreferences(mContext);
 			StringBuilder sb = new StringBuilder();
 			sb.append("<html xmlns='http://www.w3.org/1999/xhtml'>\n");
 			sb.append("<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n");
 			sb.append("\t<body>\n");
 			sb.append("\t\t<h1 align='center'>配置与管理</h1>\n");
 			sb.append("\t\t\t<form  method='get' action=''>\n");
-			sb.append(String.format(
-					"\t\t\t\tAddress: <input type='text' name='address' value='%s'/>\n",
-					preferences.getString(PUSettingActivity.ADDRESS, "")));
-			sb.append(String.format(
-					"\t\t\t\tPort: <input type='number' name='port' value='%d'/><br />\n",
-					preferences.getInt(PUSettingActivity.PORT, 0)));
+			sb.append(String
+					.format("\t\t\t\tAddress: <input type='text' name='address' value='%s'/>\n",
+							preferences
+									.getString(PUSettingActivity.ADDRESS, "")));
+			sb.append(String
+					.format("\t\t\t\tPort: <input type='number' name='port' value='%d'/><br />\n",
+							preferences.getInt(PUSettingActivity.PORT, 0)));
 			sb.append("\t\t\t\t<input type='submit' value='配置' />\n");
 			sb.append("\t\t\t</form>\n");
 
@@ -172,14 +193,17 @@ public class ConfigServer extends NanoHTTPD {
 			sb.append("<input type='submit' value='配置' />\n");
 			sb.append("</form>\n");
 
+			// WIFI begin
+
 			String cSSID = Wifi.getCurrentSSID(mContext);
-			Iterable<ScanResult> configuredNetworks = Wifi.getConfiguredNetworks(mContext);
+			Iterable<ScanResult> configuredNetworks = Wifi
+					.getConfiguredNetworks(mContext);
 			if (configuredNetworks != null) {
 				sb.append("\t\t\t<form method='post' action=''>\n");
 				sb.append("\t\t<h3 style='margin:0;padding:0'>周边WIFI接入点名称:</h3>\n");
-				Iterator<ScanResult> it = configuredNetworks.iterator();
-				while (it.hasNext()) {
-					ScanResult cfg = (ScanResult) it.next();
+				Iterator<ScanResult> it1 = configuredNetworks.iterator();
+				while (it1.hasNext()) {
+					ScanResult cfg = (ScanResult) it1.next();
 					String sSID = cfg.SSID;
 					if (sSID.startsWith("\"")) {
 						sSID = sSID.substring(1);
@@ -191,7 +215,8 @@ public class ConfigServer extends NanoHTTPD {
 					sb.append("<input type='radio' name='ssid' ");
 					String valueString = String.format("value='%s'", sSID);
 					sb.append(valueString);
-					if (cSSID.equals(sSID) || cSSID.equals(String.format("\"%s\"", sSID))) {
+					if (cSSID.equals(sSID)
+							|| cSSID.equals(String.format("\"%s\"", sSID))) {
 						sb.append("checked='checked'");
 					}
 					sb.append("/><br />");
@@ -201,45 +226,83 @@ public class ConfigServer extends NanoHTTPD {
 				sb.append("\t\t\t</form>\n");
 			}
 
+			// WIFI end
+
+			// storage available begin
+			sb.append("\t\t<h3 style='margin:0;padding:0'>设备存储</h3>\n");
+			long available = storageAvailable();
+			if (available == -1l) {
+				sb.append(String
+						.format("\t\t\t<label >可用存储空间:未知</label><br/>\n"));
+			} else {
+				sb.append(String.format(
+						"\t\t\t<label >可用存储空间:%.2fG</label><br/>\n",
+						available * 1.0f / 1073741824f));
+			}
+			// storage available end
+
+			// baterry begin
+			sb.append("\t\t<h3 style='margin:0;padding:0'>设备电量</h3>\n");
+			float percent = getBaterryPecent(mContext);
+			String p = String.format("%.2f", percent * 100);
+			p += "%";
+			sb.append(String
+					.format("\t\t\t<label >当前电池电量:%s</label><br/>\n", p));
+			// baterry end
+
+			// modify date time begin
+
+			sb.append("<form id='mdf_dt' method='post' action='' onsubmit='return mdf_date_time()'><br/>\n");
+			sb.append("<h3 style='margin:0;padding:0'>同步当前时间到模块</h3>\n");
+			sb.append("<input type='text' id='date_time_text' name='time' value='0' style='display:none;'/>\n");
+			sb.append("<input type='submit' name='mdy_date_time' value='同步' />\n");
+			sb.append("</form>\n");
+
+			// modify date time end
+			sb.append("\t\t<a href='?list_files=1'>模块录制文件下载</a><br/>\n");
+
 			sb.append("\t</body>\n");
 			sb.append("</html>\n");
 
 			return new Response(sb.toString());
 		} else {
 			if (parms.containsKey("delete")) {
-				File f = new File(mRoot, uri);
+				File f = new File(NPUApp.sROOT, uri);
 				if (f.isDirectory()) {
 					deleteDir(f);
 				} else {
 					f.delete();
 				}
-				String parentUri = uri.subSequence(0, uri.lastIndexOf("/")).toString();
+				String parentUri = uri.subSequence(0, uri.lastIndexOf("/"))
+						.toString();
 				if (parentUri.equals("")) {
 					parentUri = "/?list_files=1";
 				}
 				return new Response(
 						String.format(
 								"<html><meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='1;url=%s' />\n<body>%s%s.</body></html>",
-								parentUri, f.getName(), f.exists() ? "未能删除" : "已删除"));
+								parentUri, f.getName(), f.exists() ? "未能删除"
+										: "已删除"));
 			} else if (parms.containsKey("download_all")) {
 				uri = uri.substring(0, uri.lastIndexOf(".zip"));
-				File f = new File(mRoot, uri);
+				File f = new File(NPUApp.sROOT, uri);
 				if (f.isDirectory()) {
 					try {
 						zipDir(f.getPath(), null);
 						final String zip = uri + ".zip";
-						Response r = serveFile(zip, header, mRoot, true);
+						Response r = serveFile(zip, header, NPUApp.sROOT, true);
 						r.callback = new Runnable() {
 
 							@Override
 							public void run() {
-								new File(mRoot, zip).delete();
+								new File(NPUApp.sROOT, zip).delete();
 							}
 						};
 						return r;
 					} catch (IOException e) {
 						e.printStackTrace();
-						String parentUri = uri.subSequence(0, uri.lastIndexOf("/")).toString();
+						String parentUri = uri.subSequence(0,
+								uri.lastIndexOf("/")).toString();
 						if (parentUri.equals("")) {
 							parentUri = "/?list_files=1";
 						}
@@ -249,22 +312,22 @@ public class ConfigServer extends NanoHTTPD {
 										parentUri, "下载失败", e.getMessage()));
 					}
 				} else {
-					return serveFile(uri, header, mRoot, true);
+					return serveFile(uri, header, NPUApp.sROOT, true);
 				}
 			} else if (parms.containsKey("download_and_delete")) {
-				Response r = serveFile(uri, header, mRoot, true);
+				Response r = serveFile(uri, header, NPUApp.sROOT, true);
 				final String furi = uri;
 				r.callback = new Runnable() {
 
 					@Override
 					public void run() {
-						File file = new File(mRoot, furi);
+						File file = new File(NPUApp.sROOT, furi);
 						file.delete();
 					}
 				};
 				return r;
 			} else {
-				return serveFile(uri, header, mRoot, true);
+				return serveFile(uri, header, NPUApp.sROOT, true);
 			}
 		}
 	}
@@ -274,7 +337,8 @@ public class ConfigServer extends NanoHTTPD {
 
 			@Override
 			public boolean accept(File pathname) {
-				if (pathname.isDirectory() || pathname.getPath().endsWith(".aac")) {
+				if (pathname.isDirectory()
+						|| pathname.getPath().endsWith(".aac")) {
 					return true;
 				}
 				return false;
@@ -313,16 +377,19 @@ public class ConfigServer extends NanoHTTPD {
 			else if (len < 1024 * 1024)
 				length += len / 1024 + "." + (len % 1024 / 10 % 100) + " KB";
 			else
-				length += len / (1024 * 1024) + "." + len % (1024 * 1024) / 10 % 100 + " MB";
+				length += len / (1024 * 1024) + "." + len % (1024 * 1024) / 10
+						% 100 + " MB";
 			length = String.format("&nbsp(%s)", length);
 		}
-		String result = String
-				.format("<a href='%s?open_or_download=1'>%s</a>", name, name + length);
+		String result = String.format("<a href='%s?open_or_download=1'>%s</a>",
+				name, name + length);
 		if (file.isDirectory()) {
-			result += String
-					.format("&nbsp&nbsp&nbsp<a href='%s.zip?download_all=1'>打包下载</a>", name);
+			result += String.format(
+					"&nbsp&nbsp&nbsp<a href='%s.zip?download_all=1'>打包下载</a>",
+					name);
 		}
-		result += String.format("&nbsp&nbsp&nbsp<a href='%s?delete=1'>删除</a><br>\n", name);
+		result += String.format(
+				"&nbsp&nbsp&nbsp<a href='%s?delete=1'>删除</a><br>\n", name);
 		return result;
 	}
 
@@ -331,8 +398,8 @@ public class ConfigServer extends NanoHTTPD {
 	 * subdirectories (only). Uses only URI, ignores all headers and HTTP
 	 * parameters.
 	 */
-	public Response serveFile(String uri, Map<String, String> header, String root,
-			boolean allowDirectoryListing) {
+	public Response serveFile(String uri, Map<String, String> header,
+			String root, boolean allowDirectoryListing) {
 		Response res = null;
 		File homeDir = new File(root);
 		// Make sure we won't die of an exception later
@@ -347,14 +414,16 @@ public class ConfigServer extends NanoHTTPD {
 				uri = uri.substring(0, uri.indexOf('?'));
 
 			// Prohibit getting out of current directory
-			if (uri.startsWith("..") || uri.endsWith("..") || uri.indexOf("../") >= 0)
+			if (uri.startsWith("..") || uri.endsWith("..")
+					|| uri.indexOf("../") >= 0)
 				res = new Response(Status.FORBIDDEN, MIME_PLAINTEXT,
 						"FORBIDDEN: Won't serve ../ for security reasons.");
 		}
 
 		File f = new File(homeDir, uri);
 		if (res == null && !f.exists())
-			res = new Response(Status.NOT_FOUND, MIME_PLAINTEXT, "Error 404, file not found.");
+			res = new Response(Status.NOT_FOUND, MIME_PLAINTEXT,
+					"Error 404, file not found.");
 
 		// List the directory, if necessary
 		if (res == null && f.isDirectory()) {
@@ -391,7 +460,8 @@ public class ConfigServer extends NanoHTTPD {
 							if (parentUri.equals("/")) {
 								parentUri += "?list_files=1";
 							}
-							msg += "<b><a href=\"" + parentUri + "\">..</a></b><br/>\n";
+							msg += "<b><a href=\"" + parentUri
+									+ "\">..</a></b><br/>\n";
 						}
 					}
 
@@ -421,14 +491,14 @@ public class ConfigServer extends NanoHTTPD {
 				String mime = null;
 				int dot = f.getCanonicalPath().lastIndexOf('.');
 				if (dot >= 0)
-					mime = (String) theMimeTypes.get(f.getCanonicalPath().substring(dot + 1)
-							.toLowerCase());
+					mime = (String) theMimeTypes.get(f.getCanonicalPath()
+							.substring(dot + 1).toLowerCase());
 				if (mime == null)
 					mime = MIME_DEFAULT_BINARY;
 
 				// Calculate etag
-				String etag = Integer.toHexString((f.getAbsolutePath() + f.lastModified() + "" + f
-						.length()).hashCode());
+				String etag = Integer.toHexString((f.getAbsolutePath()
+						+ f.lastModified() + "" + f.length()).hashCode());
 
 				// Support (simple) skipping:
 				long startFrom = 0;
@@ -440,8 +510,10 @@ public class ConfigServer extends NanoHTTPD {
 						int minus = range.indexOf('-');
 						try {
 							if (minus > 0) {
-								startFrom = Long.parseLong(range.substring(0, minus));
-								endAt = Long.parseLong(range.substring(minus + 1));
+								startFrom = Long.parseLong(range.substring(0,
+										minus));
+								endAt = Long.parseLong(range
+										.substring(minus + 1));
 							}
 						} catch (NumberFormatException nfe) {
 						}
@@ -453,7 +525,8 @@ public class ConfigServer extends NanoHTTPD {
 				long fileLen = f.length();
 				if (range != null && startFrom >= 0) {
 					if (startFrom >= fileLen) {
-						res = new Response(Status.RANGE_NOT_SATISFIABLE, MIME_PLAINTEXT, "");
+						res = new Response(Status.RANGE_NOT_SATISFIABLE,
+								MIME_PLAINTEXT, "");
 						res.addHeader("Content-Range", "bytes 0-0/" + fileLen);
 						res.addHeader("ETag", etag);
 					} else {
@@ -473,8 +546,8 @@ public class ConfigServer extends NanoHTTPD {
 
 						res = new Response(Status.PARTIAL_CONTENT, mime, fis);
 						res.addHeader("Content-Length", "" + dataLen);
-						res.addHeader("Content-Range", "bytes " + startFrom + "-" + endAt + "/"
-								+ fileLen);
+						res.addHeader("Content-Range", "bytes " + startFrom
+								+ "-" + endAt + "/" + fileLen);
 						res.addHeader("filename", f.getName());
 						res.addHeader("ETag", etag);
 					}
@@ -482,7 +555,8 @@ public class ConfigServer extends NanoHTTPD {
 					if (etag.equals(header.get("if-none-match")))
 						res = new Response(Status.NOT_MODIFIED, mime, "");
 					else {
-						res = new Response(Status.OK, mime, new FileInputStream(f));
+						res = new Response(Status.OK, mime,
+								new FileInputStream(f));
 						res.addHeader("Content-Length", "" + fileLen);
 						res.addHeader("filename", f.getName());
 						res.addHeader("ETag", etag);
@@ -490,7 +564,8 @@ public class ConfigServer extends NanoHTTPD {
 				}
 			}
 		} catch (IOException ioe) {
-			res = new Response(Status.FORBIDDEN, MIME_PLAINTEXT, "FORBIDDEN: Reading file failed.");
+			res = new Response(Status.FORBIDDEN, MIME_PLAINTEXT,
+					"FORBIDDEN: Reading file failed.");
 		}
 
 		res.addHeader("Accept-Ranges", "bytes"); // Announce that the file
@@ -510,7 +585,8 @@ public class ConfigServer extends NanoHTTPD {
 		f.delete();
 	}
 
-	private static void zipDir(String dir, ZipOutputStream out) throws IOException {
+	private static void zipDir(String dir, ZipOutputStream out)
+			throws IOException {
 		boolean is_i_create = out == null;
 		if (is_i_create) {
 			String dstPath = String.format("%s.zip", dir);
@@ -565,8 +641,9 @@ public class ConfigServer extends NanoHTTPD {
 	}
 
 	public static float getBaterryPecent(Context context) {
-		Intent batteryInfoIntent = context.getApplicationContext().registerReceiver(null,
-				new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+		Intent batteryInfoIntent = context.getApplicationContext()
+				.registerReceiver(null,
+						new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
 
 		int level = batteryInfoIntent.getIntExtra("level", 50);
 		int scale = batteryInfoIntent.getIntExtra("scale", 100);

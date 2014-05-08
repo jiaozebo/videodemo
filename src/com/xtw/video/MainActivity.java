@@ -84,6 +84,8 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 			}
 		};
 
+		// Thread.setDefaultUncaughtExceptionHandler(handler);
+		startService(new Intent(this, WifiAndPuServerService.class));
 		mEntity = new MyMPUEntity(MainActivity.this);
 		if (initParams()) {
 			startWithParamValid();
@@ -244,6 +246,7 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 		mVideoParam.putParam(VideoParam.KEY_INT_PREVIEW_HEIGHT, mHeight);
 		mVideoParam.putParam(VideoParam.KEY_BOOLEAN_ENCODE_COMPATIBILITY,
 				!(isS4() || isOmate() || isS3()));
+		mVideoParam.putParam(VideoParam.KEY_INT_FRAME_RATE, 8);
 		int id = PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getInt(
 				VideoParam.KEY_INT_CAMERA_ID, 0);
 		mVideoParam.putParam(VideoParam.KEY_INT_CAMERA_ID, id);
