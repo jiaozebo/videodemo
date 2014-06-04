@@ -4,12 +4,16 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
+import util.DES;
+import util.MD5;
 import vastorager.StreamWriter;
 import android.content.Context;
 import android.os.Message;
 import android.util.OAudioRunnable;
 import c7.DC7;
+import c7.IResType;
 import c7.LoginInfo;
+import c7.NC7;
 import c7.PUParam;
 
 import com.crearo.mpu.sdk.AudioRunnable;
@@ -26,6 +30,46 @@ public class MyMPUEntity extends MPUEntity {
 	public MyMPUEntity(Context context) {
 		super(context);
 		mRecordDirPath = NPUApp.sROOT;
+	}
+
+	public NC7 getNC() {
+		return sNc;
+	}
+
+	public int loginBlock(String addr, int port, boolean fixAddress, String password, PUInfo info)
+			throws InterruptedException {
+		LoginInfo li = new LoginInfo();
+		li.addr = addr;
+		li.port = port;
+		li.isFixAddr = fixAddress;
+		li.password = password;
+		li.param = new PUParam();
+		li.param.ProducerID = "00005";
+		li.param.PUID = info.puid;
+		li.param.DevID = info.puid.substring(3);
+		li.param.HardwareVer = info.hardWareVer;
+		li.param.SoftwareVer = info.softWareVer;
+		li.param.puname = info.name;
+		li.param.pudesc = info.name;
+		li.param.mCamName = info.cameraName;
+		li.param.mMicName = info.mMicName;
+		li.param.mSpeakerName = info.mSpeakerName;
+		li.param.mGPSName = info.mGPSName;
+
+		sNc.setCallback(this);
+		for (IResType type : IResType.values()) {
+			type.mIsAlive = false;
+		}
+		li.binPswHash = MD5.encrypt(li.password.getBytes());
+		int rst = sNc.create(li, 5000);
+		if (rst != 0) {
+			rst += ErrorCode.NC_OFFSET;
+		} else {
+			sNc.sendRpt(li.param);
+			mDes = DES.getNativeInstance(sNc.getCryptKey());
+		}
+		return rst;
+
 	}
 
 	/*

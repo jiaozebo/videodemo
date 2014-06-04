@@ -40,7 +40,6 @@ public class WifiStateReceiver extends BroadcastReceiver {
 
 				WifiManager mng = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
 				if (!Wifi.isWifiApEnabled(mng)) {
-					NPUApp.stopPUServer(context);
 				}
 			} else if (prevState != WifiManager.WIFI_STATE_ENABLED
 					&& wifiState == WifiManager.WIFI_STATE_ENABLED) {
@@ -55,7 +54,6 @@ public class WifiStateReceiver extends BroadcastReceiver {
 		// 在上边广播接到广播是WifiManager.WIFI_STATE_ENABLED状态的同时也会接到这个广播，当然刚打开wifi肯定还没有连接到有效的无线
 		if (WifiManager.NETWORK_STATE_CHANGED_ACTION.equals(intent.getAction())) { // 这时候通知底层关闭或者开启3G
 			Parcelable parcelableExtra = intent.getParcelableExtra(WifiManager.EXTRA_NETWORK_INFO);
-
 			if (null != parcelableExtra) {
 				NetworkInfo networkInfo = (NetworkInfo) parcelableExtra;
 
@@ -69,18 +67,20 @@ public class WifiStateReceiver extends BroadcastReceiver {
 					} else {
 						ssid = Wifi.getCurrentSSID(context);
 					}
+
 					boolean needChangeWifi = false;
 					// 自动连接一个默认的WIFI.
 					String defaultSSID = PreferenceManager.getDefaultSharedPreferences(context)
-							.getString(KEY_DEFAULT_SSID, "123456");
-					if (defaultSSID.equals(ssid)
-							|| String.format("\"%s\"", defaultSSID).equals(ssid)) {
+							.getString(KEY_DEFAULT_SSID, NPUApp.DEFAULT_SSID);
+					boolean equal = defaultSSID.equals(ssid)
+							|| String.format("\"%s\"", defaultSSID).equals(ssid);
+					if (equal) {
+						PreferenceManager.getDefaultSharedPreferences(context).edit()
+								.putString(KEY_DEFAULT_SSID, NPUApp.DEFAULT_SSID)
+								.putString(KEY_DEFAULT_SSID_PWD, NPUApp.DEFAULT_SSID_PWD).commit();
 					} else {
 						String defaultPwd = PreferenceManager.getDefaultSharedPreferences(context)
-								.getString(KEY_DEFAULT_SSID_PWD, null);
-						if ("123456".equals(defaultSSID)) {
-							defaultPwd = "58894436";
-						}
+								.getString(KEY_DEFAULT_SSID_PWD, NPUApp.DEFAULT_SSID_PWD);
 						Iterable<ScanResult> configuredNetworks = Wifi
 								.getConfiguredNetworks(context);
 						if (configuredNetworks != null) {
@@ -94,7 +94,6 @@ public class WifiStateReceiver extends BroadcastReceiver {
 								if (sSID.endsWith("\"")) {
 									sSID = sSID.substring(0, sSID.length() - 1);
 								}
-
 								if (sSID.equals(defaultSSID)) {
 									// 连接该wifi
 									Wifi.connectWifi(context, sSID, defaultPwd);
@@ -105,10 +104,11 @@ public class WifiStateReceiver extends BroadcastReceiver {
 						}
 					}
 					if (!needChangeWifi) {
-						NPUApp.startServer(context);
+						// G.log("before start in WIFIStateReceiver");
+						// G.startServer(context);
 					}
 				} else { // WIFI关闭
-					NPUApp.stopPUServer(context);
+					// G.stopServer();
 				}
 			}
 		}

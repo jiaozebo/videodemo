@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.xtw.video"
     android:versionCode="8"
-    android:versionName="8.3" >
+    android:versionName="8.4" >
 
     <uses-sdk
         android:minSdkVersion="8"
@@ -100,6 +100,13 @@
                 <data android:scheme="file" />
             </intent-filter>
         </receiver>
+
+        <service
+            android:name="com.xtw.video.NCIntentService"
+            android:exported="false" >
+        </service>
+        <service android:name="com.xtw.video.PUServerService" />
+        <service android:name="com.xtw.video.ConfigServer" />
     </application>
 
 </manifest>

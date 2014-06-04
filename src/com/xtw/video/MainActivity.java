@@ -19,7 +19,6 @@ import android.os.Build.VERSION;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.SurfaceHolder;
@@ -32,7 +31,6 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.RelativeLayout.LayoutParams;
 import android.widget.Toast;
-import c7.CRChannel;
 
 import com.crearo.config.Connectivity;
 import com.crearo.mpu.sdk.client.VideoParam;
@@ -84,14 +82,11 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 			}
 		};
 
-		// Thread.setDefaultUncaughtExceptionHandler(handler);
-		startService(new Intent(this, WifiAndPuServerService.class));
-		mEntity = new MyMPUEntity(MainActivity.this);
 		if (initParams()) {
 			startWithParamValid();
 			tryEnableMobileData();
 			if (mPort != 0) {
-				startLogin();
+				NCIntentService.startNC(this, mAddress, mPort);
 			}
 		} else {
 			Intent i = new Intent(this, PUSettingActivity.class);
@@ -125,84 +120,10 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 		}
 	}
 
-	/**
-	 * 只要参数合适就调用。
-	 */
-	private void startLogin() {
-		Thread thread = mLoginThread;
-		if (thread != null && thread.isAlive()) {
-			return;
-		}
-		thread = new Thread("LOGIN") {
-			@Override
-			public void run() {
-				MyMPUEntity entity = mEntity;
-				if (entity == null) {
-					return;
-				}
-				boolean first = true;
-				while (mLoginThread != null) {
-					if (!first) {
-						entity.logout();
-						try {
-							Thread.sleep(1000);
-						} catch (InterruptedException e) {
-							e.printStackTrace();
-						}
-					}
-					int result = entity.login(mAddress, mPort, true, "", NPUApp.sInfo);
-					first = false;
-					if (result == 0) {
-						entity.setChannelCallback(entity.new NCCAllback() {
-
-							@Override
-							public void onErrorFetched(CRChannel arg0, int arg1) {
-								try {
-									Thread.sleep(1000);
-									runOnUiThread(new Runnable() {
-
-										@Override
-										public void run() {
-											stopLogin();
-											startLogin();
-										}
-									});
-								} catch (InterruptedException e) {
-									e.printStackTrace();
-								}
-							}
-						});
-						break;
-					} else {
-						Log.e(tag, "login error! code = " + result);
-					}
-				}
-			}
-		};
-		thread.start();
-		mLoginThread = thread;
-	}
-
-	protected void stopLogin() {
-		Thread t = mLoginThread;
-		if (t != null) {
-			mLoginThread = null;
-			t.interrupt();
-			try {
-				t.join();
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}
-		}
-		if (mEntity != null) {
-			mEntity.logout();
-		}
-	}
-
 	@TargetApi(Build.VERSION_CODES.GINGERBREAD)
 	private void startWithParamValid() {
 		setContentView(R.layout.activity_main);
-
+		mEntity = NPUApp.sEntity;
 		mSwitchCameraButton = (Button) findViewById(R.id.switch_camera);
 		if (VERSION.SDK_INT < Build.VERSION_CODES.GINGERBREAD) {
 			ViewGroup parent = (ViewGroup) mSwitchCameraButton.getParent();
@@ -265,14 +186,12 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 					mRecordStart = false;
 				}
 				entity.stop();
-				NPUApp.setEntity(null);
 			}
 
 			@Override
 			public void surfaceCreated(final SurfaceHolder holder) {
 				mEntity.start(mSurface, mVideoParam);
 				mRecordStart = mEntity.startOrStopRecord();
-				NPUApp.setEntity(mEntity);
 			}
 
 			@Override
@@ -380,7 +299,6 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 		mResetQuitFlagRunnable = null;
 		mQuitTipToast = null;
 		if (mEntity != null) {
-			stopLogin();
 			mEntity.close();
 			mEntity = null;
 		}
@@ -404,11 +322,12 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 		} else if (key.equals(PUSettingActivity.ADDRESS) || key.equals(PUSettingActivity.PORT)) {
 			mAddress = sharedPreferences.getString(PUSettingActivity.ADDRESS, null);
 			mPort = sharedPreferences.getInt(PUSettingActivity.PORT, 0);
-			stopLogin();
+
+			NCIntentService.stopNC(this);
 			if (mPort == 0 || TextUtils.isEmpty(mAddress)) {
 				return;
 			}
-			startLogin();
+			NCIntentService.startNC(this, mAddress, mPort);
 		}
 	}
 

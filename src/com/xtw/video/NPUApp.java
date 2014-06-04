@@ -10,26 +10,23 @@ import java.lang.Thread.UncaughtExceptionHandler;
 
 import util.CommonMethod;
 import android.app.Application;
-import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import c7.PUParam;
 
 import com.crearo.config.StorageOptions;
 import com.crearo.mpu.sdk.Common;
 import com.crearo.mpu.sdk.client.PUInfo;
-import com.crearo.puserver.PUServerThread;
 
 public class NPUApp extends Application {
 
+	public static final String DEFAULT_SSID = "123456";
+	public static final String DEFAULT_SSID_PWD = "12344321";
 	static PUInfo sInfo;
-	private static MyMPUEntity sEntity;
+	static MyMPUEntity sEntity;
 	static String sROOT;
 
-	private static PUServerThread mServer;
-	private static ConfigServer sConfigServer;
 	public static boolean sUseAsAp = false;
 
 	/*
@@ -47,6 +44,8 @@ public class NPUApp extends Application {
 			e3.printStackTrace();
 		}
 		initRootPath();
+
+		sEntity = new MyMPUEntity(this);
 		PUParam p = new PUParam();
 		Common.initParam(p, this);
 		sInfo = new PUInfo();
@@ -90,6 +89,13 @@ public class NPUApp extends Application {
 				System.exit(10);
 			}
 		};
+		// Thread.setDefaultUncaughtExceptionHandler(handler);
+		// wifi 配置
+		ConfigServer.start(this, null, 8080);
+
+		// 直连
+		Intent i = new Intent(this, PUServerService.class);
+		this.startService(i);
 	}
 
 	public static void initRootPath() {
@@ -103,48 +109,6 @@ public class NPUApp extends Application {
 
 		File f = new File(sROOT);
 		f.mkdirs();
-	}
-
-	public static void setEntity(MyMPUEntity entity) {
-		if (mServer != null) {
-			mServer.setCallbackHandler(entity);
-		}
-		sEntity = entity;
-	}
-
-	public static PUServerThread getServer() {
-		return mServer;
-	}
-
-	public static void startServer(Context context) {
-		if (mServer == null) {
-			PUServerThread p = new PUServerThread(context, NPUApp.sInfo, 8888);
-			p.start();
-			p.setCallbackHandler(sEntity);
-			mServer = p;
-		}
-		if (sConfigServer == null) {
-			try {
-				sConfigServer = new ConfigServer(context);
-				sConfigServer.start();
-			} catch (IOException e) {
-				sConfigServer = null;
-				e.printStackTrace();
-			}
-		}
-
-	}
-
-	public static void stopPUServer(Context context) {
-		if (mServer != null) {
-			mServer.setCallbackHandler(null);
-			mServer.quit();
-			mServer = null;
-		}
-		if (sConfigServer != null) {
-			sConfigServer.stop();
-			sConfigServer = null;
-		}
 	}
 
 }

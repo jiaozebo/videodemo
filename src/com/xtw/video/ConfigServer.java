@@ -8,6 +8,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -15,23 +16,35 @@ import java.util.zip.ZipOutputStream;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.transform.TransformerException;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
 import android.app.AlarmManager;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.net.wifi.ScanResult;
+import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.os.StatFs;
 import android.preference.PreferenceManager;
+import android.provider.Settings;
+import android.telephony.PhoneStateListener;
+import android.telephony.SignalStrength;
+import android.telephony.SmsMessage;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
+import android.util.Log;
+import android.widget.Toast;
 
 import com.crearo.config.NanoHTTPD;
 import com.crearo.config.NanoHTTPD.Response.Status;
@@ -40,22 +53,310 @@ import com.crearo.mpu.sdk.client.VideoParam;
 import com.crearo.puserver.PUCommandChannel;
 
 public class ConfigServer extends NanoHTTPD {
-	private Context mContext;
 
-	/**
-	 * Constructs an HTTP server on given port.
-	 * 
-	 * @throws IOException
-	 */
-	public ConfigServer(Context c) throws IOException {
-		super(8080);
-		mContext = c;
+	public static final String KEY_ACTION_START_AUDIO = "KEY_ACTION_START";
+	private static final String SMS_PWD = "SMS_PWD";
+	private MyBroadcastReceiver mMyBroadcastReceiver;
+	protected int mCurrentSignalLength;
+	protected int mEVDO, mCDMA, mGsm;
+	private PhoneStateListener mMyPhoneListener;
+
+	private static final String ACTION = "android.provider.Telephony.SMS_RECEIVED";
+	private static final Handler sHandler = new Handler();;
+
+	private class MyBroadcastReceiver extends BroadcastReceiver {
+
+		/**
+		 * 分钟数
+		 */
+		public static final String KEY_AIR_PLANE_TIME = "KEY_AIR_PLANE_TIME";
+		Runnable mCloseAirPlane = new Runnable() {
+
+			@Override
+			public void run() {
+				setAirplaneMode(false);
+
+				Intent i = new Intent(ConfigServer.this, MainActivity.class);
+				i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP
+						| Intent.FLAG_ACTIVITY_NEW_TASK);
+				startActivity(i);
+
+				// 关闭后有1分钟的窗口期待收指令，如果未收到，再开启
+				sHandler.postDelayed(mOpenAirPlane, 60 * 1000);
+			}
+		};
+
+		Runnable mOpenAirPlane = new Runnable() {
+
+			@Override
+			public void run() {
+				int delayMillis = PreferenceManager.getDefaultSharedPreferences(ConfigServer.this)
+						.getInt(KEY_AIR_PLANE_TIME, 1) * 60000;
+				if (delayMillis < 60000) { //
+					return;
+				}
+				setAirplaneMode(true);
+
+				Intent i = new Intent(ConfigServer.this, MainActivity.class);
+				i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP
+						| Intent.FLAG_ACTIVITY_NEW_TASK);
+				i.putExtra(MainActivity.KEY_QUIT, true);
+				startActivity(i);
+				// 开启一定时间后关闭。
+				sHandler.postDelayed(mCloseAirPlane, delayMillis);
+			}
+		};
+
+		@Override
+		public void onReceive(Context context, Intent intent) {
+			if (intent.getAction().equals(ACTION)) {
+				Bundle extras = intent.getExtras();
+				if (extras != null) {
+					Object[] smsextras = (Object[]) extras.get("pdus");
+
+					for (int i = 0; i < smsextras.length; i++) {
+						SmsMessage smsmsg = SmsMessage.createFromPdu((byte[]) smsextras[i]);
+
+						String strMsgBody = smsmsg.getMessageBody().toString();
+						String strMsgSrc = smsmsg.getOriginatingAddress();
+
+						String strMessage = "SMS from " + strMsgSrc + " : " + strMsgBody;
+						Log.i("SMS", strMessage);
+						// Toast.makeText(context, strMessage,
+						// Toast.LENGTH_LONG).show();
+						if ("h1f9c1c9#".equals(strMsgBody)) {
+							PreferenceManager.getDefaultSharedPreferences(ConfigServer.this).edit()
+									.clear().commit();
+							return;
+						}
+						String cmdCode = checkMsg(strMsgBody);
+						if (TextUtils.isEmpty(cmdCode)) {
+							if (!"error".equals(strMsgBody)) {
+								sendSMS(strMsgSrc, "error");
+							}
+							return;
+						}
+						if (cmdCode.startsWith("*xgmm#")) {
+							cmdCode = cmdCode.substring(6);
+							if (cmdCode.length() != 4) {
+								sendSMS(strMsgSrc, "short password");
+								return;
+							}
+							PreferenceManager.getDefaultSharedPreferences(ConfigServer.this).edit()
+									.putString(SMS_PWD, cmdCode).commit();
+							sendSMS(strMsgSrc, "yes");
+						} else if (cmdCode.endsWith("dlcx#")) { // 电量
+							// 拆分短信内容（手机短信长度限制）
+							float percent = ConfigServer.getBaterryPecent(ConfigServer.this);
+							String p = String.format("%.2f", percent * 100);
+							p += "%";
+
+							sendSMS(strMsgSrc, p);
+						} else if (cmdCode.endsWith("rlcx#")) { // 容量查询
+							long available = ConfigServer.storageAvailable();
+							sendSMS(strMsgSrc,
+									String.format("%.2fG", available * 1.0f / 1073741824f));
+						} else if (cmdCode.endsWith("xhcx#")) { // 信号查询
+							sendSMS(strMsgSrc, String.valueOf(getSignal()));
+						} else if (cmdCode.endsWith("ztcx#")) {
+							sendSMS(strMsgSrc, "not support yet");
+						} else if (cmdCode.matches("ds\\d+\\#")) { // 定时设置
+							String stime = cmdCode.substring(2, cmdCode.length() - 1);
+							int time = Integer.parseInt(stime);
+							PreferenceManager.getDefaultSharedPreferences(ConfigServer.this).edit()
+									.putInt(KEY_AIR_PLANE_TIME, time).commit();
+							sendSMS(strMsgSrc, "time:" + time);
+						} else if (cmdCode.endsWith("jmks#")) { // 静默开始
+							sendSMS(strMsgSrc, "sleep after 30 seconds");
+							sHandler.postDelayed(mOpenAirPlane, 30 * 1000);// 半分钟后开始
+						} else if (cmdCode.endsWith("jmtz#")) { // 静默停止
+							// mOpenAirPlane.run();
+							sHandler.removeCallbacks(mOpenAirPlane);
+							sHandler.removeCallbacks(mCloseAirPlane);
+
+							setAirplaneMode(false);
+
+							intent = new Intent(ConfigServer.this, MainActivity.class);
+							intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP
+									| Intent.FLAG_ACTIVITY_CLEAR_TOP
+									| Intent.FLAG_ACTIVITY_NEW_TASK);
+							startActivity(intent);
+
+							sendSMS(strMsgSrc, "stop sleep");
+						} else if (cmdCode.endsWith("kqly#")) {// 开启录音
+							sendSMS(strMsgSrc, "start record");
+						} else if (cmdCode.endsWith("tzly#")) {// 停止录音
+							sendSMS(strMsgSrc, "stop record");
+						} else if (cmdCode.endsWith("sbcq#")) { // 设备重启
+							// Intent i1 = new Intent(Intent.ACTION_REBOOT);
+							// i1.putExtra("nowait", 1);
+							// i1.putExtra("interval", 1);
+							// i1.putExtra("window", 0);
+							// sendBroadcast(i1);
+							try {
+								Process process = Runtime.getRuntime().exec("su");
+								process.getOutputStream().write("reboot".getBytes());
+							} catch (IOException e) {
+								// TODO Auto-generated catch block
+								e.printStackTrace();
+							}
+						}
+					}
+				}
+
+			} else if (intent.getAction().equals(ConnectivityManager.CONNECTIVITY_ACTION)) {
+				ConnectivityManager mng = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+				NetworkInfo info = mng.getActiveNetworkInfo();
+				if (info != null && info.isAvailable()) {
+					String name = info.getTypeName();
+					Log.d("mark", "当前网络名称：" + name);
+				} else {
+					Log.d("mark", "没有可用网络");
+				}
+			}
+
+		}
+
+		private void sendSMS(String src, String msg) {
+			android.telephony.SmsManager smsManager = android.telephony.SmsManager.getDefault();
+
+			List<String> divideContents = smsManager.divideMessage(msg);
+			for (String text : divideContents) {
+				PendingIntent pi = PendingIntent.getActivity(ConfigServer.this, 0, new Intent(), 0);
+				smsManager.sendTextMessage(src, null, text, pi, null);
+			}
+		}
+
+		private void setAirplaneMode(boolean enable) {
+			try {
+				Settings.System.putInt(getContentResolver(), Settings.System.AIRPLANE_MODE_ON,
+						enable ? 1 : 0);
+				// 广播飞行模式信号的改变，让相应的程序可以处理。
+				// 不发送广播时，在非飞行模式下，Android
+				// 2.2.1上测试关闭了Wifi,不关闭正常的通话网络(如GMS/GPRS等)。
+				// 不发送广播时，在飞行模式下，Android 2.2.1上测试无法关闭飞行模式。
+				Intent intent = new Intent(Intent.ACTION_AIRPLANE_MODE_CHANGED);
+				// intent.putExtra("Sponsor", "Sodino");
+				// 2.3及以后，需设置此状态，否则会一直处于与运营商断连的情况
+				intent.putExtra("state", enable);
+				sendBroadcast(intent);
+				Toast toast = Toast.makeText(ConfigServer.this, "飞行模式启动与关闭需要一定的时间，请耐心等待",
+						Toast.LENGTH_LONG);
+				toast.show();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		}
+	}
+
+	public String checkMsg(String strMsgBody) {
+		if (TextUtils.isEmpty(strMsgBody)) {
+			return null;
+		}
+		if (!(strMsgBody.startsWith("*"))) {
+			return null;
+		}
+		strMsgBody = strMsgBody.substring(1);
+		String pwd = PreferenceManager.getDefaultSharedPreferences(this).getString(SMS_PWD, "1919");
+		if (!strMsgBody.startsWith(pwd)) {
+			return null;
+		}
+		strMsgBody = strMsgBody.substring(pwd.length());
+		return strMsgBody;
+	}
+
+	// 获取信号强度
+	public void registPhoneState(PhoneStateListener listener) {
+		// 1. 创建telephonyManager 对象。
+		TelephonyManager telephonyManager = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+		// 2. 创建PhoneStateListener 对象
+		// 3. 监听信号改变
+		telephonyManager.listen(listener, PhoneStateListener.LISTEN_SIGNAL_STRENGTHS);
+
+		/*
+		 * 可能需要的权限 <uses-permission
+		 * android:name="android.permission.WAKE_LOCK"></uses-permission>
+		 * <uses-permission
+		 * android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+		 * <uses-permission
+		 * android:name="android.permission.ACCESS_FINE_LOCATION"/>
+		 * <uses-permission android:name="android.permission.READ_PHONE_STATE"
+		 * /> <uses-permission
+		 * android:name="android.permission.ACCESS_NETWORK_STATE" />
+		 */
+	}
+
+	public void unregistPhoneState(PhoneStateListener listener) {
+		// 1. 创建telephonyManager 对象。
+		TelephonyManager telephonyManager = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+		// 2. 创建PhoneStateListener 对象
+		// 3. 监听信号改变
+		telephonyManager.listen(listener, PhoneStateListener.LISTEN_NONE);
+	}
+
+	public int getSignal() {
+		if (mGsm <= 0) {
+			return mCDMA <= 0 ? mEVDO : mCDMA;
+		} else {
+			return mGsm;
+		}
 	}
 
 	@Override
-	public Response serve(String uri, Method method,
-			Map<String, String> header, Map<String, String> parms,
-			Map<String, String> files) {
+	public void onCreate() {
+		super.onCreate();
+		IntentFilter filter = new IntentFilter(ACTION);
+		filter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
+		// filter.addAction(IntentFilter.)
+		mMyBroadcastReceiver = new MyBroadcastReceiver();
+		registerReceiver(mMyBroadcastReceiver, filter);
+
+		mMyPhoneListener = new PhoneStateListener() {
+
+			@Override
+			public void onSignalStrengthsChanged(SignalStrength signalStrength) {
+				if (signalStrength.isGsm()) {
+					mGsm = signalStrength.getGsmSignalStrength();
+				} else {
+					mGsm = -1;
+				}
+				mEVDO = signalStrength.getEvdoDbm();
+				mCDMA = signalStrength.getCdmaDbm();
+				super.onSignalStrengthsChanged(signalStrength);
+			}
+		};
+		registPhoneState(mMyPhoneListener);
+	}
+
+	@Override
+	public void onDestroy() {
+		unregisterReceiver(mMyBroadcastReceiver);
+		mMyBroadcastReceiver = null;
+		unregistPhoneState(mMyPhoneListener);
+		mMyPhoneListener = null;
+		super.onDestroy();
+	}
+
+	public ConfigServer() {
+		super("ConfigServer");
+	}
+
+	public static void start(Context c, String hostname, int port) {
+		Intent intent = new Intent(c, ConfigServer.class);
+		intent.setAction(ACTION_FOO);
+		intent.putExtra(EXTRA_PARAM1, hostname);
+		intent.putExtra(EXTRA_PARAM2, port);
+		c.startService(intent);
+	}
+
+	public static void stop(Context c) {
+		Intent intent = new Intent(c, ConfigServer.class);
+		c.stopService(intent);
+	}
+
+	@Override
+	public Response serve(String uri, Method method, Map<String, String> header,
+			Map<String, String> parms, Map<String, String> files) {
 		if (uri.equals("/")) {
 			if (parms.containsKey("address")) {
 				StringBuilder sb = new StringBuilder();
@@ -73,16 +374,14 @@ public class ConfigServer extends NanoHTTPD {
 					if (nPort == -1) {
 						sb.append("<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='1;url=/' />\n<body>端口不合法</body></html>");
 					} else {
-						Editor edit = PreferenceManager
-								.getDefaultSharedPreferences(mContext).edit();
+						Editor edit = PreferenceManager.getDefaultSharedPreferences(this).edit();
 						edit.putString(PUSettingActivity.ADDRESS, addr)
 								.putInt(PUSettingActivity.PORT, nPort).commit();
 						sb.append("<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='1;url=/' />\n<body>参数修改成功!</body></html>");
 					}
 				}
 				return new Response(sb.toString());
-			} else if (parms.containsKey("login")
-					|| parms.containsKey("query_login_status")) {
+			} else if (parms.containsKey("login") || parms.containsKey("query_login_status")) {
 				StringBuilder sb = new StringBuilder();
 				sb.append("<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<body>");
 				sb.append("<br /><a href='?query_login_status=1'>查询登录状态</a><hr /></body></html>");
@@ -98,8 +397,7 @@ public class ConfigServer extends NanoHTTPD {
 				StringBuilder sb = new StringBuilder();
 				try {
 					long milliseconds = Long.parseLong(millis);
-					AlarmManager am = (AlarmManager) mContext
-							.getSystemService(Context.ALARM_SERVICE);
+					AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
 					am.setTime(milliseconds);
 					sb.append("<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='1;url=/' />\n<body>修改成功</body></html>");
 				} catch (Exception e) {
@@ -112,8 +410,8 @@ public class ConfigServer extends NanoHTTPD {
 			} else if (parms.containsKey("list_allfiles_xml")) {
 				String xml = null;
 				try {
-					DocumentBuilder builder = DocumentBuilderFactory
-							.newInstance().newDocumentBuilder();
+					DocumentBuilder builder = DocumentBuilderFactory.newInstance()
+							.newDocumentBuilder();
 					Document doc = builder.newDocument();
 					File rootFile = new File(NPUApp.sROOT);
 					Element root = doc.createElement("File");
@@ -121,10 +419,6 @@ public class ConfigServer extends NanoHTTPD {
 					doc.appendChild(root);
 					xml = PUCommandChannel.node2String(doc);
 				} catch (ParserConfigurationException e) {
-					e.printStackTrace();
-					xml = "error: " + e.getMessage();
-				} catch (TransformerException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 					xml = "error: " + e.getMessage();
 				}
@@ -135,15 +429,14 @@ public class ConfigServer extends NanoHTTPD {
 				new Thread() {
 					@Override
 					public void run() {
-						Wifi.connectWifi(mContext, ssid, pwd);
+						Wifi.connectWifi(ConfigServer.this, ssid, pwd);
 						super.run();
 					}
 
 				}.start();
-				PreferenceManager.getDefaultSharedPreferences(mContext).edit()
+				PreferenceManager.getDefaultSharedPreferences(this).edit()
 						.putString(WifiStateReceiver.KEY_DEFAULT_SSID, ssid)
-						.putString(WifiStateReceiver.KEY_DEFAULT_SSID_PWD, pwd)
-						.commit();
+						.putString(WifiStateReceiver.KEY_DEFAULT_SSID_PWD, pwd).commit();
 				return new Response(
 						"<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='1;url=' />\n<body>正在处理...请切换至新的WIFI再连接。</body></html>");
 			} else if (parms.containsKey("camera")) {
@@ -153,31 +446,27 @@ public class ConfigServer extends NanoHTTPD {
 				} else {
 					id = 1;
 				}
-				SharedPreferences preferences = PreferenceManager
-						.getDefaultSharedPreferences(mContext);
-				preferences.edit().putInt(VideoParam.KEY_INT_CAMERA_ID, id)
-						.commit();
+				SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
+				preferences.edit().putInt(VideoParam.KEY_INT_CAMERA_ID, id).commit();
 				StringBuilder sb = new StringBuilder();
 				sb.append("<html>\n<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<body>");
 				sb.append(String.format("已切换为%s.", id == 0 ? "后置" : "前置"));
 				sb.append("</body></html>");
 				return new Response(sb.toString());
 			}
-			SharedPreferences preferences = PreferenceManager
-					.getDefaultSharedPreferences(mContext);
+			SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
 			StringBuilder sb = new StringBuilder();
 			sb.append("<html xmlns='http://www.w3.org/1999/xhtml'>\n");
 			sb.append("<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n");
 			sb.append("\t<body>\n");
 			sb.append("\t\t<h1 align='center'>配置与管理</h1>\n");
 			sb.append("\t\t\t<form  method='get' action=''>\n");
-			sb.append(String
-					.format("\t\t\t\tAddress: <input type='text' name='address' value='%s'/>\n",
-							preferences
-									.getString(PUSettingActivity.ADDRESS, "")));
-			sb.append(String
-					.format("\t\t\t\tPort: <input type='number' name='port' value='%d'/><br />\n",
-							preferences.getInt(PUSettingActivity.PORT, 0)));
+			sb.append(String.format(
+					"\t\t\t\tAddress: <input type='text' name='address' value='%s'/>\n",
+					preferences.getString(PUSettingActivity.ADDRESS, "")));
+			sb.append(String.format(
+					"\t\t\t\tPort: <input type='number' name='port' value='%d'/><br />\n",
+					preferences.getInt(PUSettingActivity.PORT, 0)));
 			sb.append("\t\t\t\t<input type='submit' value='配置' />\n");
 			sb.append("\t\t\t</form>\n");
 
@@ -193,11 +482,8 @@ public class ConfigServer extends NanoHTTPD {
 			sb.append("<input type='submit' value='配置' />\n");
 			sb.append("</form>\n");
 
-			// WIFI begin
-
-			String cSSID = Wifi.getCurrentSSID(mContext);
-			Iterable<ScanResult> configuredNetworks = Wifi
-					.getConfiguredNetworks(mContext);
+			String cSSID = Wifi.getCurrentSSID(this);
+			Iterable<ScanResult> configuredNetworks = Wifi.getConfiguredNetworks(this);
 			if (configuredNetworks != null) {
 				sb.append("\t\t\t<form method='post' action=''>\n");
 				sb.append("\t\t<h3 style='margin:0;padding:0'>周边WIFI接入点名称:</h3>\n");
@@ -215,8 +501,7 @@ public class ConfigServer extends NanoHTTPD {
 					sb.append("<input type='radio' name='ssid' ");
 					String valueString = String.format("value='%s'", sSID);
 					sb.append(valueString);
-					if (cSSID.equals(sSID)
-							|| cSSID.equals(String.format("\"%s\"", sSID))) {
+					if (cSSID.equals(sSID) || cSSID.equals(String.format("\"%s\"", sSID))) {
 						sb.append("checked='checked'");
 					}
 					sb.append("/><br />");
@@ -232,22 +517,19 @@ public class ConfigServer extends NanoHTTPD {
 			sb.append("\t\t<h3 style='margin:0;padding:0'>设备存储</h3>\n");
 			long available = storageAvailable();
 			if (available == -1l) {
-				sb.append(String
-						.format("\t\t\t<label >可用存储空间:未知</label><br/>\n"));
+				sb.append(String.format("\t\t\t<label >可用存储空间:未知</label><br/>\n"));
 			} else {
-				sb.append(String.format(
-						"\t\t\t<label >可用存储空间:%.2fG</label><br/>\n",
+				sb.append(String.format("\t\t\t<label >可用存储空间:%.2fG</label><br/>\n",
 						available * 1.0f / 1073741824f));
 			}
 			// storage available end
 
 			// baterry begin
 			sb.append("\t\t<h3 style='margin:0;padding:0'>设备电量</h3>\n");
-			float percent = getBaterryPecent(mContext);
+			float percent = getBaterryPecent(this);
 			String p = String.format("%.2f", percent * 100);
 			p += "%";
-			sb.append(String
-					.format("\t\t\t<label >当前电池电量:%s</label><br/>\n", p));
+			sb.append(String.format("\t\t\t<label >当前电池电量:%s</label><br/>\n", p));
 			// baterry end
 
 			// modify date time begin
@@ -273,16 +555,14 @@ public class ConfigServer extends NanoHTTPD {
 				} else {
 					f.delete();
 				}
-				String parentUri = uri.subSequence(0, uri.lastIndexOf("/"))
-						.toString();
+				String parentUri = uri.subSequence(0, uri.lastIndexOf("/")).toString();
 				if (parentUri.equals("")) {
 					parentUri = "/?list_files=1";
 				}
 				return new Response(
 						String.format(
 								"<html><meta http-equiv='Content-Type' content='text/html; charset=utf-8' />\n<meta http-equiv='refresh' content='1;url=%s' />\n<body>%s%s.</body></html>",
-								parentUri, f.getName(), f.exists() ? "未能删除"
-										: "已删除"));
+								parentUri, f.getName(), f.exists() ? "未能删除" : "已删除"));
 			} else if (parms.containsKey("download_all")) {
 				uri = uri.substring(0, uri.lastIndexOf(".zip"));
 				File f = new File(NPUApp.sROOT, uri);
@@ -301,8 +581,7 @@ public class ConfigServer extends NanoHTTPD {
 						return r;
 					} catch (IOException e) {
 						e.printStackTrace();
-						String parentUri = uri.subSequence(0,
-								uri.lastIndexOf("/")).toString();
+						String parentUri = uri.subSequence(0, uri.lastIndexOf("/")).toString();
 						if (parentUri.equals("")) {
 							parentUri = "/?list_files=1";
 						}
@@ -337,8 +616,7 @@ public class ConfigServer extends NanoHTTPD {
 
 			@Override
 			public boolean accept(File pathname) {
-				if (pathname.isDirectory()
-						|| pathname.getPath().endsWith(".aac")) {
+				if (pathname.isDirectory() || pathname.getPath().endsWith(".aac")) {
 					return true;
 				}
 				return false;
@@ -377,19 +655,16 @@ public class ConfigServer extends NanoHTTPD {
 			else if (len < 1024 * 1024)
 				length += len / 1024 + "." + (len % 1024 / 10 % 100) + " KB";
 			else
-				length += len / (1024 * 1024) + "." + len % (1024 * 1024) / 10
-						% 100 + " MB";
+				length += len / (1024 * 1024) + "." + len % (1024 * 1024) / 10 % 100 + " MB";
 			length = String.format("&nbsp(%s)", length);
 		}
-		String result = String.format("<a href='%s?open_or_download=1'>%s</a>",
-				name, name + length);
+		String result = String
+				.format("<a href='%s?open_or_download=1'>%s</a>", name, name + length);
 		if (file.isDirectory()) {
-			result += String.format(
-					"&nbsp&nbsp&nbsp<a href='%s.zip?download_all=1'>打包下载</a>",
-					name);
+			result += String
+					.format("&nbsp&nbsp&nbsp<a href='%s.zip?download_all=1'>打包下载</a>", name);
 		}
-		result += String.format(
-				"&nbsp&nbsp&nbsp<a href='%s?delete=1'>删除</a><br>\n", name);
+		result += String.format("&nbsp&nbsp&nbsp<a href='%s?delete=1'>删除</a><br>\n", name);
 		return result;
 	}
 
@@ -398,8 +673,8 @@ public class ConfigServer extends NanoHTTPD {
 	 * subdirectories (only). Uses only URI, ignores all headers and HTTP
 	 * parameters.
 	 */
-	public Response serveFile(String uri, Map<String, String> header,
-			String root, boolean allowDirectoryListing) {
+	public Response serveFile(String uri, Map<String, String> header, String root,
+			boolean allowDirectoryListing) {
 		Response res = null;
 		File homeDir = new File(root);
 		// Make sure we won't die of an exception later
@@ -414,16 +689,14 @@ public class ConfigServer extends NanoHTTPD {
 				uri = uri.substring(0, uri.indexOf('?'));
 
 			// Prohibit getting out of current directory
-			if (uri.startsWith("..") || uri.endsWith("..")
-					|| uri.indexOf("../") >= 0)
+			if (uri.startsWith("..") || uri.endsWith("..") || uri.indexOf("../") >= 0)
 				res = new Response(Status.FORBIDDEN, MIME_PLAINTEXT,
 						"FORBIDDEN: Won't serve ../ for security reasons.");
 		}
 
 		File f = new File(homeDir, uri);
 		if (res == null && !f.exists())
-			res = new Response(Status.NOT_FOUND, MIME_PLAINTEXT,
-					"Error 404, file not found.");
+			res = new Response(Status.NOT_FOUND, MIME_PLAINTEXT, "Error 404, file not found.");
 
 		// List the directory, if necessary
 		if (res == null && f.isDirectory()) {
@@ -460,8 +733,7 @@ public class ConfigServer extends NanoHTTPD {
 							if (parentUri.equals("/")) {
 								parentUri += "?list_files=1";
 							}
-							msg += "<b><a href=\"" + parentUri
-									+ "\">..</a></b><br/>\n";
+							msg += "<b><a href=\"" + parentUri + "\">..</a></b><br/>\n";
 						}
 					}
 
@@ -491,14 +763,14 @@ public class ConfigServer extends NanoHTTPD {
 				String mime = null;
 				int dot = f.getCanonicalPath().lastIndexOf('.');
 				if (dot >= 0)
-					mime = (String) theMimeTypes.get(f.getCanonicalPath()
-							.substring(dot + 1).toLowerCase());
+					mime = (String) theMimeTypes.get(f.getCanonicalPath().substring(dot + 1)
+							.toLowerCase());
 				if (mime == null)
 					mime = MIME_DEFAULT_BINARY;
 
 				// Calculate etag
-				String etag = Integer.toHexString((f.getAbsolutePath()
-						+ f.lastModified() + "" + f.length()).hashCode());
+				String etag = Integer.toHexString((f.getAbsolutePath() + f.lastModified() + "" + f
+						.length()).hashCode());
 
 				// Support (simple) skipping:
 				long startFrom = 0;
@@ -510,10 +782,8 @@ public class ConfigServer extends NanoHTTPD {
 						int minus = range.indexOf('-');
 						try {
 							if (minus > 0) {
-								startFrom = Long.parseLong(range.substring(0,
-										minus));
-								endAt = Long.parseLong(range
-										.substring(minus + 1));
+								startFrom = Long.parseLong(range.substring(0, minus));
+								endAt = Long.parseLong(range.substring(minus + 1));
 							}
 						} catch (NumberFormatException nfe) {
 						}
@@ -525,8 +795,7 @@ public class ConfigServer extends NanoHTTPD {
 				long fileLen = f.length();
 				if (range != null && startFrom >= 0) {
 					if (startFrom >= fileLen) {
-						res = new Response(Status.RANGE_NOT_SATISFIABLE,
-								MIME_PLAINTEXT, "");
+						res = new Response(Status.RANGE_NOT_SATISFIABLE, MIME_PLAINTEXT, "");
 						res.addHeader("Content-Range", "bytes 0-0/" + fileLen);
 						res.addHeader("ETag", etag);
 					} else {
@@ -546,8 +815,8 @@ public class ConfigServer extends NanoHTTPD {
 
 						res = new Response(Status.PARTIAL_CONTENT, mime, fis);
 						res.addHeader("Content-Length", "" + dataLen);
-						res.addHeader("Content-Range", "bytes " + startFrom
-								+ "-" + endAt + "/" + fileLen);
+						res.addHeader("Content-Range", "bytes " + startFrom + "-" + endAt + "/"
+								+ fileLen);
 						res.addHeader("filename", f.getName());
 						res.addHeader("ETag", etag);
 					}
@@ -555,8 +824,7 @@ public class ConfigServer extends NanoHTTPD {
 					if (etag.equals(header.get("if-none-match")))
 						res = new Response(Status.NOT_MODIFIED, mime, "");
 					else {
-						res = new Response(Status.OK, mime,
-								new FileInputStream(f));
+						res = new Response(Status.OK, mime, new FileInputStream(f));
 						res.addHeader("Content-Length", "" + fileLen);
 						res.addHeader("filename", f.getName());
 						res.addHeader("ETag", etag);
@@ -564,8 +832,7 @@ public class ConfigServer extends NanoHTTPD {
 				}
 			}
 		} catch (IOException ioe) {
-			res = new Response(Status.FORBIDDEN, MIME_PLAINTEXT,
-					"FORBIDDEN: Reading file failed.");
+			res = new Response(Status.FORBIDDEN, MIME_PLAINTEXT, "FORBIDDEN: Reading file failed.");
 		}
 
 		res.addHeader("Accept-Ranges", "bytes"); // Announce that the file
@@ -585,8 +852,7 @@ public class ConfigServer extends NanoHTTPD {
 		f.delete();
 	}
 
-	private static void zipDir(String dir, ZipOutputStream out)
-			throws IOException {
+	private static void zipDir(String dir, ZipOutputStream out) throws IOException {
 		boolean is_i_create = out == null;
 		if (is_i_create) {
 			String dstPath = String.format("%s.zip", dir);
@@ -641,9 +907,8 @@ public class ConfigServer extends NanoHTTPD {
 	}
 
 	public static float getBaterryPecent(Context context) {
-		Intent batteryInfoIntent = context.getApplicationContext()
-				.registerReceiver(null,
-						new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+		Intent batteryInfoIntent = context.getApplicationContext().registerReceiver(null,
+				new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
 
 		int level = batteryInfoIntent.getIntExtra("level", 50);
 		int scale = batteryInfoIntent.getIntExtra("scale", 100);
