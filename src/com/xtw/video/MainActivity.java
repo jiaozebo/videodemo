@@ -43,9 +43,8 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 	protected static final String KEY_QUIT = "key_quit";
 	private int mWidth, mHeight;
 	SurfaceView mSurface;
-	MyMPUEntity mEntity;
+	// MyMPUEntity mEntity;
 	protected VideoParam mVideoParam;
-	private Thread mLoginThread;
 	private String mAddress;
 	private int mPort;
 	private boolean mQuit;
@@ -123,7 +122,6 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 	@TargetApi(Build.VERSION_CODES.GINGERBREAD)
 	private void startWithParamValid() {
 		setContentView(R.layout.activity_main);
-		mEntity = NPUApp.sEntity;
 		mSwitchCameraButton = (Button) findViewById(R.id.switch_camera);
 		if (VERSION.SDK_INT < Build.VERSION_CODES.GINGERBREAD) {
 			ViewGroup parent = (ViewGroup) mSwitchCameraButton.getParent();
@@ -177,7 +175,7 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 
 			@Override
 			public void surfaceDestroyed(final SurfaceHolder holder) {
-				MyMPUEntity entity = mEntity;
+				MyMPUEntity entity = NPUApp.sEntity;
 				if (entity == null) {
 					return;
 				}
@@ -190,8 +188,12 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 
 			@Override
 			public void surfaceCreated(final SurfaceHolder holder) {
-				mEntity.start(mSurface, mVideoParam);
-				mRecordStart = mEntity.startOrStopRecord();
+				MyMPUEntity entity = NPUApp.sEntity;
+				if (entity == null) {
+					return;
+				}
+				entity.start(mSurface, mVideoParam);
+				mRecordStart = entity.startOrStopRecord();
 			}
 
 			@Override
@@ -216,7 +218,8 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 
 	private boolean isS4() {
 		return Build.MODEL.equals("SCH-I959") || Build.MODEL.equals("GT-I9500")
-				|| Build.MODEL.equals("SCH-I9502") || Build.MODEL.equals("SCH-I9508");
+				|| Build.MODEL.equals("SCH-I9502") || Build.MODEL.equals("SCH-I9508")
+				|| Build.MODEL.equals("GT-I9508V") || Build.MODEL.equals("Nexus 7");
 	}
 
 	private boolean isS3() {
@@ -278,17 +281,18 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 
 	@Override
 	public void onBackPressed() {
-		if (mEntity == null) {
+		MyMPUEntity entity = NPUApp.sEntity;
+		if (entity == null) {
 			super.onBackPressed();
 		}
 		if (mQuit) {
-			mEntity.removeCallbacks(mResetQuitFlagRunnable);
+			entity.removeCallbacks(mResetQuitFlagRunnable);
 			mResetQuitFlagRunnable.run();
 			super.onBackPressed();
 		} else {
 			mQuit = true;
 			mQuitTipToast.show();
-			mEntity.postDelayed(mResetQuitFlagRunnable, 1500);
+			entity.postDelayed(mResetQuitFlagRunnable, 1500);
 		}
 	}
 
@@ -298,10 +302,6 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 				.unregisterOnSharedPreferenceChangeListener(this);
 		mResetQuitFlagRunnable = null;
 		mQuitTipToast = null;
-		if (mEntity != null) {
-			mEntity.close();
-			mEntity = null;
-		}
 		if (mVideoParam != null) {
 			Editor edit = PreferenceManager.getDefaultSharedPreferences(MainActivity.this).edit();
 			edit.putInt(VideoParam.KEY_INT_CAMERA_ID,
@@ -315,20 +315,12 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 	public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
 		if (key.equals(VideoParam.KEY_INT_CAMERA_ID) && mSwitchCameraButton != null) {
 			int newId = sharedPreferences.getInt(key, 0);
-			if (mEntity != null) {
-				mEntity.switchCamera(newId, mVideoParam);
+			MyMPUEntity entity = NPUApp.sEntity;
+			if (entity != null) {
+				entity.switchCamera(newId, mVideoParam);
 				mVideoParam.putParam(VideoParam.KEY_INT_CAMERA_ID, newId);
 			}
-		} else if (key.equals(PUSettingActivity.ADDRESS) || key.equals(PUSettingActivity.PORT)) {
-			mAddress = sharedPreferences.getString(PUSettingActivity.ADDRESS, null);
-			mPort = sharedPreferences.getInt(PUSettingActivity.PORT, 0);
-
-			NCIntentService.stopNC(this);
-			if (mPort == 0 || TextUtils.isEmpty(mAddress)) {
-				return;
-			}
-			NCIntentService.startNC(this, mAddress, mPort);
-		}
+		} 
 	}
 
 }

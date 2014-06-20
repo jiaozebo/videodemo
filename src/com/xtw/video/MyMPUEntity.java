@@ -72,6 +72,23 @@ public class MyMPUEntity extends MPUEntity {
 
 	}
 
+	@Override
+	protected int handleStartStream(LoginInfo info) {
+		if (info.resType.mIsAlive && info.resType == IResType.IV) {
+			DC7 dc = null;
+			CameraThread pt = mCameraThread;
+			if (pt != null) {
+				dc = pt.getVideoDC();
+			}
+			if (dc != null) {
+				dc.close();
+			}
+			info.resType.mIsAlive = false;
+			// return ErrorCode.ERROR_REOURCE_IN_USE;
+		}
+		return super.handleStartStream(info);
+	}
+
 	/*
 	 * (non-Javadoc)
 	 * 
@@ -248,7 +265,7 @@ public class MyMPUEntity extends MPUEntity {
 			if (nRet == 0) {
 				if (ct != null) {
 					ct.setRecorder(streamWriter);
-					if (ct instanceof PreviewThread) { // 硬编码时可能会导致录像死锁，原因未知，因此暂时注释
+					if (ct instanceof PreviewThread) {
 						DC7 dc = AudioRunnable.singleton().getDc();
 						startIAWithDC(dc);
 						AudioRunnable.singleton().setRecorder(streamWriter);

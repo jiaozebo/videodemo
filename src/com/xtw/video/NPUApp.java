@@ -11,15 +11,20 @@ import java.lang.Thread.UncaughtExceptionHandler;
 import util.CommonMethod;
 import android.app.Application;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager.NameNotFoundException;
+import android.preference.PreferenceManager;
+import android.text.TextUtils;
 import c7.PUParam;
 
 import com.crearo.config.StorageOptions;
 import com.crearo.mpu.sdk.Common;
 import com.crearo.mpu.sdk.client.PUInfo;
+import com.crearo.mpu.sdk.client.VideoParam;
 
-public class NPUApp extends Application {
+public class NPUApp extends Application implements OnSharedPreferenceChangeListener {
 
 	public static final String DEFAULT_SSID = "123456";
 	public static final String DEFAULT_SSID_PWD = "12344321";
@@ -44,7 +49,8 @@ public class NPUApp extends Application {
 			e3.printStackTrace();
 		}
 		initRootPath();
-
+		PreferenceManager.getDefaultSharedPreferences(this)
+				.registerOnSharedPreferenceChangeListener(this);
 		sEntity = new MyMPUEntity(this);
 		PUParam p = new PUParam();
 		Common.initParam(p, this);
@@ -111,4 +117,17 @@ public class NPUApp extends Application {
 		f.mkdirs();
 	}
 
+	@Override
+	public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
+		if (key.equals(PUSettingActivity.ADDRESS) || key.equals(PUSettingActivity.PORT)) {
+			String mAddress = sharedPreferences.getString(PUSettingActivity.ADDRESS, null);
+			int mPort = sharedPreferences.getInt(PUSettingActivity.PORT, 0);
+
+			NCIntentService.stopNC(this);
+			if (mPort == 0 || TextUtils.isEmpty(mAddress)) {
+				return;
+			}
+			NCIntentService.startNC(this, mAddress, mPort);
+		}
+	}
 }
