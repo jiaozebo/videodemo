@@ -22,11 +22,10 @@ import c7.PUParam;
 import com.crearo.config.StorageOptions;
 import com.crearo.mpu.sdk.Common;
 import com.crearo.mpu.sdk.client.PUInfo;
-import com.crearo.mpu.sdk.client.VideoParam;
 
 public class NPUApp extends Application implements OnSharedPreferenceChangeListener {
 
-	public static final String DEFAULT_SSID = "123456";
+	public static final String DEFAULT_SSID = "123_zxcvbnm";
 	public static final String DEFAULT_SSID_PWD = "12344321";
 	static PUInfo sInfo;
 	static MyMPUEntity sEntity;

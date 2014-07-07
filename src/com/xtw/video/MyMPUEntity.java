@@ -277,4 +277,8 @@ public class MyMPUEntity extends MPUEntity {
 		return false;
 	}
 
+	public boolean isStarted() {
+		return mCameraThread != null;
+	}
+
 }

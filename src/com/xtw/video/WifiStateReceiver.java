@@ -38,9 +38,9 @@ public class WifiStateReceiver extends BroadcastReceiver {
 				//
 				// wifi 关闭了
 
-				WifiManager mng = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
-				if (!Wifi.isWifiApEnabled(mng)) {
-				}
+//				WifiManager mng = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+//				if (!Wifi.isWifiApEnabled(mng)) {
+//				}
 			} else if (prevState != WifiManager.WIFI_STATE_ENABLED
 					&& wifiState == WifiManager.WIFI_STATE_ENABLED) {
 				// wifi 开启了
@@ -52,7 +52,7 @@ public class WifiStateReceiver extends BroadcastReceiver {
 		// 这个监听wifi的连接状态即是否连上了一个有效无线路由，当上边广播的状态是WifiManager.WIFI_STATE_DISABLING，和WIFI_STATE_DISABLED的时候，根本不会接到这个广播。
 		// //
 		// 在上边广播接到广播是WifiManager.WIFI_STATE_ENABLED状态的同时也会接到这个广播，当然刚打开wifi肯定还没有连接到有效的无线
-		if (WifiManager.NETWORK_STATE_CHANGED_ACTION.equals(intent.getAction())) { // 这时候通知底层关闭或者开启3G
+		else if (WifiManager.NETWORK_STATE_CHANGED_ACTION.equals(intent.getAction())) { // 这时候通知底层关闭或者开启3G
 			Parcelable parcelableExtra = intent.getParcelableExtra(WifiManager.EXTRA_NETWORK_INFO);
 			if (null != parcelableExtra) {
 				NetworkInfo networkInfo = (NetworkInfo) parcelableExtra;
@@ -111,6 +111,10 @@ public class WifiStateReceiver extends BroadcastReceiver {
 					// G.stopServer();
 				}
 			}
+			
+			Intent i = new Intent(context, PUServerService.class);
+			i.putExtra(PUServerService.EXTRA_CHECK_WIFI_NOW, true);
+			context.startService(i);
 		}
 		//
 		// // 这个监听网络连接的设置，包括wifi和移动数据的打开和关闭。.

@@ -56,6 +56,8 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 	 */
 	private Button mSwitchCameraButton;
 
+	private boolean mRecordStart;
+
 	@SuppressLint("ShowToast")
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -65,11 +67,8 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 			finish();
 			return;
 		}
-		getWindow().addFlags(
-				WindowManager.LayoutParams.FLAG_FULLSCREEN
-						| WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-		PreferenceManager.getDefaultSharedPreferences(this)
-				.registerOnSharedPreferenceChangeListener(this);
+		getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+		PreferenceManager.getDefaultSharedPreferences(this).registerOnSharedPreferenceChangeListener(this);
 
 		mQuitTipToast = Toast.makeText(this, "再按一次退出", Toast.LENGTH_LONG);
 		mResetQuitFlagRunnable = new Runnable() {
@@ -94,10 +93,8 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 	}
 
 	private void tryEnableMobileData() {
-		if (!Connectivity
-				.isMobileDataEnabled((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE))) {
-			Connectivity.setMobileDataEnable(
-					(ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE), true);
+		if (!Connectivity.isMobileDataEnabled((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE))) {
+			Connectivity.setMobileDataEnable((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE), true);
 		}
 	}
 
@@ -136,8 +133,7 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 
 				@Override
 				public void onClick(View v) {
-					SharedPreferences preferences = PreferenceManager
-							.getDefaultSharedPreferences(MainActivity.this);
+					SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(MainActivity.this);
 					int newId = 1 - preferences.getInt(VideoParam.KEY_INT_CAMERA_ID, 0);
 					preferences.edit().putInt(VideoParam.KEY_INT_CAMERA_ID, newId).commit();
 				}
@@ -146,32 +142,15 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 
 		mSurface = (SurfaceView) findViewById(R.id.fake_render);
 
-		final Rect outRect = new Rect();
-		getWindow().getDecorView().getWindowVisibleDisplayFrame(outRect);
-
-		final float ratioW = (float) mWidth / (float) outRect.width();
-		final float ratioH = (float) mHeight / (float) outRect.height();
-		final LayoutParams params = (LayoutParams) mSurface.getLayoutParams();
-		if (ratioW > ratioH) {// 比率更高的更改为view的尺寸
-			params.height = (int) (mHeight / ratioW);
-			params.width = outRect.width();
-		} else {
-			params.height = outRect.height();
-			params.width = (int) (mWidth / ratioH);
-		}
-		mSurface.requestLayout();
+		fixSurfaceRatio();
 		mVideoParam = new VideoParam();
 		mVideoParam.putParam(VideoParam.KEY_INT_PREVIEW_WIDTH, mWidth);
 		mVideoParam.putParam(VideoParam.KEY_INT_PREVIEW_HEIGHT, mHeight);
-		mVideoParam.putParam(VideoParam.KEY_BOOLEAN_ENCODE_COMPATIBILITY,
-				!(isS4() || isOmate() || isS3()));
+		mVideoParam.putParam(VideoParam.KEY_BOOLEAN_ENCODE_COMPATIBILITY, !(isS4() || isOmate() || isS3()));
 		mVideoParam.putParam(VideoParam.KEY_INT_FRAME_RATE, 8);
-		int id = PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getInt(
-				VideoParam.KEY_INT_CAMERA_ID, 0);
+		int id = PreferenceManager.getDefaultSharedPreferences(MainActivity.this).getInt(VideoParam.KEY_INT_CAMERA_ID, 0);
 		mVideoParam.putParam(VideoParam.KEY_INT_CAMERA_ID, id);
 		final Callback callback = new Callback() {
-
-			private boolean mRecordStart;
 
 			@Override
 			public void surfaceDestroyed(final SurfaceHolder holder) {
@@ -197,8 +176,7 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 			}
 
 			@Override
-			public void surfaceChanged(final SurfaceHolder holder, final int format,
-					final int width, final int height) {
+			public void surfaceChanged(final SurfaceHolder holder, final int format, final int width, final int height) {
 			}
 		};
 		mSurface.getHolder().addCallback(callback);
@@ -212,13 +190,29 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 		}
 	}
 
+	private void fixSurfaceRatio() {
+		final Rect outRect = new Rect();
+		getWindow().getDecorView().getWindowVisibleDisplayFrame(outRect);
+
+		final float ratioW = (float) mWidth / (float) outRect.width();
+		final float ratioH = (float) mHeight / (float) outRect.height();
+		final LayoutParams params = (LayoutParams) mSurface.getLayoutParams();
+		if (ratioW > ratioH) {// 比率更高的更改为view的尺寸
+			params.height = (int) (mHeight / ratioW);
+			params.width = outRect.width();
+		} else {
+			params.height = outRect.height();
+			params.width = (int) (mWidth / ratioH);
+		}
+		mSurface.requestLayout();
+	}
+
 	private boolean isOmate() {
 		return Build.MODEL.equals("OMATE");
 	}
 
 	private boolean isS4() {
-		return Build.MODEL.equals("SCH-I959") || Build.MODEL.equals("GT-I9500")
-				|| Build.MODEL.equals("SCH-I9502") || Build.MODEL.equals("SCH-I9508")
+		return Build.MODEL.equals("SCH-I959") || Build.MODEL.equals("GT-I9500") || Build.MODEL.equals("SCH-I9502") || Build.MODEL.equals("SCH-I9508")
 				|| Build.MODEL.equals("GT-I9508V") || Build.MODEL.equals("Nexus 7");
 	}
 
@@ -298,14 +292,12 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 
 	@Override
 	protected void onDestroy() {
-		PreferenceManager.getDefaultSharedPreferences(this)
-				.unregisterOnSharedPreferenceChangeListener(this);
+		PreferenceManager.getDefaultSharedPreferences(this).unregisterOnSharedPreferenceChangeListener(this);
 		mResetQuitFlagRunnable = null;
 		mQuitTipToast = null;
 		if (mVideoParam != null) {
 			Editor edit = PreferenceManager.getDefaultSharedPreferences(MainActivity.this).edit();
-			edit.putInt(VideoParam.KEY_INT_CAMERA_ID,
-					mVideoParam.getIntParam(VideoParam.KEY_INT_CAMERA_ID, 0)).commit();
+			edit.putInt(VideoParam.KEY_INT_CAMERA_ID, mVideoParam.getIntParam(VideoParam.KEY_INT_CAMERA_ID, 0)).commit();
 			mVideoParam = null;
 		}
 		super.onDestroy();
@@ -320,7 +312,37 @@ public class MainActivity extends Activity implements OnSharedPreferenceChangeLi
 				entity.switchCamera(newId, mVideoParam);
 				mVideoParam.putParam(VideoParam.KEY_INT_CAMERA_ID, newId);
 			}
-		} 
+		} else if (key.equals(VideoParam.KEY_INT_FRAME_RATE)) {
+			mVideoParam.putParam(VideoParam.KEY_INT_FRAME_RATE, sharedPreferences.getInt(key, 8));
+		} else if (key.equals(PUSettingActivity.PREVIEW_SIZE_VALUE)) {
+			String[] size = sharedPreferences.getString(key, "352x288").split("x");
+			if (size != null && size.length == 2) {
+				try {
+
+					int w = Integer.parseInt(size[0]);
+					int h = Integer.parseInt(size[1]);
+					mVideoParam.putParam(VideoParam.KEY_INT_PREVIEW_WIDTH, w);
+					mVideoParam.putParam(VideoParam.KEY_INT_PREVIEW_HEIGHT, h);
+					MyMPUEntity entity = NPUApp.sEntity;
+					if (entity != null) {
+						if (entity.isStarted()) {
+							if (mRecordStart) {
+								entity.startOrStopRecord();
+								mRecordStart = false;
+							}
+							entity.stop();
+							entity.start(mSurface, mVideoParam);
+							mRecordStart = entity.startOrStopRecord();
+						}
+					}
+					mWidth = w;
+					mHeight = h;
+				} catch (Exception e) {
+					// TODO: handle exception
+				}
+
+			}
+		}
 	}
 
 }
