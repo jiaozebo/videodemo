@@ -281,4 +281,11 @@ public class MyMPUEntity extends MPUEntity {
 		return mCameraThread != null;
 	}
 
+	public void setFrameRate(int frameRate) {
+		CameraThread ct = mCameraThread;
+		if (ct != null) {
+			ct.setFrameRate(frameRate);
+		}
+	}
+
 }

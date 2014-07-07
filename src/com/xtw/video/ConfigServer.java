@@ -520,8 +520,16 @@ public class ConfigServer extends NanoHTTPD {
 
 			sb.append("<form method='post' action=''>\n");
 			sb.append("<h3 style='margin:0;padding:0'>视频</h3>\n");
-			sb.append("<input name='camera' value='back' type='radio' >后置摄像头采集</input>\n");
-			sb.append("<input name='camera' value='front' type='radio' checked='1'>前置摄像头采集<br />\n");
+			
+			int cid = preferences.getInt(VideoParam.KEY_INT_CAMERA_ID, 0);
+			if (cid == 0) {
+				sb.append("<input name='camera' value='back' type='radio' checked='1'>后置摄像头采集</input>\n");
+				sb.append("<input name='camera' value='front' type='radio' >前置摄像头采集<br />\n");
+			} else {
+				sb.append("<input name='camera' value='back' type='radio' >后置摄像头采集</input>\n");
+				sb.append("<input name='camera' value='front' type='radio' checked='1'>前置摄像头采集<br />\n");
+			}
+			
 			sb.append("帧率: <input type='number' name='frame_rate' value='");
 			sb.append(preferences.getInt(VideoParam.KEY_INT_FRAME_RATE, 8));
 			sb.append("'/><br />\n");
